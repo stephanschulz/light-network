@@ -56,21 +56,21 @@ body {
     background-color: #ffffff;
     border-left: 1px solid #ddd;
     overflow-y: auto;
-    padding: 20px;
+    padding: 12px;
     box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
 }
 
 .control-panel h2 {
-    font-size: 18px;
-    margin-bottom: 20px;
+    font-size: 16px;
+    margin-bottom: 10px;
     color: #333;
     border-bottom: 2px solid #007bff;
-    padding-bottom: 8px;
+    padding-bottom: 4px;
 }
 
 .control-panel h3 {
-    font-size: 14px;
-    margin-bottom: 10px;
+    font-size: 12px;
+    margin-bottom: 6px;
     color: #555;
     font-weight: 600;
     text-transform: uppercase;
@@ -78,8 +78,8 @@ body {
 }
 
 .control-section {
-    margin-bottom: 25px;
-    padding-bottom: 20px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
     border-bottom: 1px solid #e0e0e0;
 }
 
@@ -90,8 +90,8 @@ body {
 /* Form Controls */
 label {
     display: block;
-    margin-bottom: 5px;
-    font-size: 13px;
+    margin-bottom: 2px;
+    font-size: 12px;
     color: #555;
     font-weight: 500;
 }
@@ -104,7 +104,7 @@ label span {
 
 input[type="range"] {
     width: 100%;
-    margin-bottom: 15px;
+    margin-bottom: 8px;
     height: 4px;
     border-radius: 2px;
     background: #ddd;
@@ -145,8 +145,8 @@ label:has(input[type="checkbox"]) {
     display: flex;
     align-items: center;
     cursor: pointer;
-    padding: 8px 0;
-    margin-bottom: 8px;
+    padding: 4px 0;
+    margin-bottom: 4px;
     font-weight: normal;
 }
 
@@ -159,12 +159,12 @@ label:has(input[type="checkbox"]):hover {
 /* Buttons */
 .btn {
     width: 100%;
-    padding: 10px;
-    margin-bottom: 10px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
     border: 1px solid #ddd;
     background-color: #f8f9fa;
     color: #333;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     border-radius: 4px;
     cursor: pointer;
@@ -201,31 +201,31 @@ label:has(input[type="checkbox"]):hover {
 #totalPower,
 #cableInfo,
 #lengthFilterLabel {
-    font-size: 13px;
+    font-size: 11px;
     color: #555;
-    margin-bottom: 8px;
-    padding: 6px 10px;
+    margin-bottom: 4px;
+    padding: 4px 8px;
     background-color: #f8f9fa;
-    border-radius: 4px;
-    border-left: 3px solid #007bff;
+    border-radius: 3px;
+    border-left: 2px solid #007bff;
 }
 
 #totalPower {
     font-weight: 600;
-    border-left: 3px solid #28a745;
+    border-left: 2px solid #28a745;
 }
 
 .info-box {
-    font-size: 12px;
+    font-size: 11px;
     color: #555;
-    margin-top: 10px;
-    padding: 10px;
+    margin-top: 6px;
+    padding: 6px 8px;
     background-color: #fff3cd;
     border: 1px solid #ffc107;
-    border-radius: 4px;
+    border-radius: 3px;
     white-space: pre-line;
-    line-height: 1.5;
-    max-height: 150px;
+    line-height: 1.4;
+    max-height: 120px;
     overflow-y: auto;
 }
 
@@ -305,8 +305,8 @@ label:has(input[type="checkbox"]):hover {
 
 /* Footer */
 .footer {
-    margin-top: 30px;
-    padding-top: 20px;
+    margin-top: 12px;
+    padding-top: 10px;
     border-top: 1px solid #e0e0e0;
     text-align: center;
 }
@@ -314,16 +314,16 @@ label:has(input[type="checkbox"]):hover {
 .github-link {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
+    gap: 6px;
+    padding: 6px 10px;
     background-color: #24292e;
     color: white;
     text-decoration: none;
-    border-radius: 6px;
-    font-size: 13px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 500;
     transition: all 0.2s;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
 }
 
 .github-link:hover {
@@ -334,13 +334,15 @@ label:has(input[type="checkbox"]):hover {
 
 .github-link svg {
     flex-shrink: 0;
+    width: 16px;
+    height: 16px;
 }
 
 .ai-note {
-    font-size: 11px;
+    font-size: 10px;
     color: #888;
-    margin-top: 10px;
-    line-height: 1.4;
+    margin-top: 6px;
+    line-height: 1.3;
     font-style: italic;
 }
 

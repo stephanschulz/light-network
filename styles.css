@@ -303,6 +303,47 @@ label:has(input[type="checkbox"]):hover {
     border-radius: 4px;
 }
 
+/* Footer */
+.footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    text-align: center;
+}
+
+.github-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background-color: #24292e;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+    margin-bottom: 12px;
+}
+
+.github-link:hover {
+    background-color: #1a1e22;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.github-link svg {
+    flex-shrink: 0;
+}
+
+.ai-note {
+    font-size: 11px;
+    color: #888;
+    margin-top: 10px;
+    line-height: 1.4;
+    font-style: italic;
+}
+
 /* Utility Classes */
 .hidden {
     display: none !important;

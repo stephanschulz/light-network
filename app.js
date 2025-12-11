@@ -489,19 +489,53 @@ class NetworkVisualizer {
     }
 
     countArrowsFromNode(nodeStr) {
-        // Count how many edge data STARTS originate from this node
+        // Count how many UNIQUE VISIBLE arrows originate from this node
+        // Multiple edges between the same two nodes appear as one arrow
         // This represents power consumption - each data START = 1 amp
         // Maximum allowed = 4 data starts per ArtNet node
         if (!this.artnetOptimization) return 0;
 
-        let count = 0;
+        const nodeId = this.nodeIds.get(nodeStr);
+        const uniqueDestinations = new Set(); // Track unique (start, end) pairs
+        const matchingEdges = [];
 
         for (const edge of this.edges) {
             // Use the optimized edge direction to determine the source
             const dir = this.artnetOptimization.edgeDirections.get(edge);
-            if (dir && dir.start === nodeStr) {
-                count++;
+            // IMPORTANT: Only count edges that would actually be drawn as arrows
+            // Must have BOTH start AND end defined (matching drawArrows logic)
+            if (dir && dir.start && dir.end && dir.start === nodeStr) {
+                // Check if the arrow would actually be drawn (skip zero-length edges in WORLD coordinates)
+                const from = this.parseNode(dir.start);
+                const to = this.parseNode(dir.end);
+                const dx = to.x - from.x;
+                const dy = to.y - from.y;
+                const dz = to.z - from.z;
+                const worldLength = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                
+                // Skip zero-length edges in world space (same as drawArrow does)
+                if (worldLength < 0.001) {
+                    console.log(`Skipping zero-length edge from node ${nodeId}:`, this.edgeIds.get(edge));
+                    continue;
+                }
+                
+                // Only count unique destination pairs (deduplicates overlapping arrows)
+                uniqueDestinations.add(dir.end);
+                
+                matchingEdges.push({
+                    edgeId: this.edgeIds.get(edge),
+                    from: dir.start,
+                    to: dir.end,
+                    worldLength: worldLength.toFixed(3)
+                });
             }
+        }
+
+        const count = uniqueDestinations.size;
+
+        // Enhanced debug logging - show for ALL ArtNet nodes
+        if (this.artnetOptimization.artnetNodes.includes(nodeStr)) {
+            console.log(`Node ${nodeId}: Counted ${count} unique arrows (${matchingEdges.length} total edges), Edges:`, matchingEdges);
         }
 
         return count;
@@ -513,11 +547,51 @@ class NetworkVisualizer {
         this.ctx.strokeStyle = '#ff00ff';  // Magenta
         this.ctx.lineWidth = this.arrowWidth * this.scale;
 
+        const drawnArrows = new Map(); // Track arrows drawn from each node
+        let skippedCount = 0;
+
         for (const edge of this.edges) {
             // Use the optimized edge direction to determine arrow direction
             const dir = this.artnetOptimization.edgeDirections.get(edge);
             if (dir && dir.start && dir.end) {
+                // Check if it will actually be drawn (not zero-length)
+                const from = this.parseNode(dir.start);
+                const to = this.parseNode(dir.end);
+                const fromPos = this.worldToCanvas(from.x, from.y);
+                const toPos = this.worldToCanvas(to.x, to.y);
+                const dx = toPos.x - fromPos.x;
+                const dy = toPos.y - fromPos.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                
+                if (length === 0) {
+                    skippedCount++;
+                    continue;
+                }
+                
                 this.drawArrow(dir.start, dir.end);
+                
+                // Track for debugging
+                if (!drawnArrows.has(dir.start)) {
+                    drawnArrows.set(dir.start, []);
+                }
+                drawnArrows.get(dir.start).push({
+                    edgeId: this.edgeIds.get(edge),
+                    to: dir.end
+                });
+            }
+        }
+
+        if (skippedCount > 0) {
+            console.log(`Skipped ${skippedCount} zero-length arrows`);
+        }
+
+        // Debug logging for ALL ArtNet nodes
+        if (this.artnetOptimization) {
+            for (const [nodeStr, arrows] of drawnArrows) {
+                if (this.artnetOptimization.artnetNodes.includes(nodeStr)) {
+                    const nodeId = this.nodeIds.get(nodeStr);
+                    console.log(`Node ${nodeId}: Actually drew ${arrows.length} arrows:`, arrows);
+                }
             }
         }
     }

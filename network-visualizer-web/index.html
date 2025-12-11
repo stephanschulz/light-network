@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Visualizer - Full Featured</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Main Canvas Area -->
+        <div class="canvas-container">
+            <canvas id="networkCanvas"></canvas>
+            <div id="tooltip" class="tooltip"></div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <h2>Network Visualizer</h2>
+
+            <!-- Visual Controls -->
+            <div class="control-section">
+                <h3>Visual Settings</h3>
+
+                <label>Node Diameter: <span id="nodeDiameterValue">2</span></label>
+                <input type="range" id="nodeDiameter" min="0.1" max="10" step="0.1" value="2">
+
+                <label>Arrow Length %: <span id="arrowLengthValue">50</span>%</label>
+                <input type="range" id="arrowLength" min="10" max="100" step="1" value="50">
+
+                <label>Font Size: <span id="fontSizeValue">20</span></label>
+                <input type="range" id="fontSize" min="6" max="40" step="1" value="20">
+            </div>
+
+            <!-- Data Loading -->
+            <div class="control-section">
+                <h3>Data</h3>
+                <button id="loadDataBtn" class="btn">Load CSV Data</button>
+                <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+                <button id="exportEdgesBtn" class="btn">Export Edge Data</button>
+                <button id="printResultsBtn" class="btn">Print Node Results</button>
+            </div>
+
+            <!-- ArtNet Optimization -->
+            <div class="control-section">
+                <h3>ArtNet Optimization</h3>
+                <button id="optimizeBtn" class="btn btn-primary">Optimize ArtNet</button>
+                <label>
+                    <input type="checkbox" id="showArtnetNodes">
+                    Show Smart Nodes (□ + #)
+                </label>
+                <label>
+                    <input type="checkbox" id="showGrid">
+                    Show Grid
+                </label>
+                <div id="artnetInfo" class="info-box">Click 'Optimize' to analyze</div>
+            </div>
+
+            <!-- Display Options -->
+            <div class="control-section">
+                <h3>Display</h3>
+                <label>
+                    <input type="checkbox" id="showDataCables">
+                    Show Data Cables
+                </label>
+                <div id="cableInfo">Cable: 0.00m</div>
+
+                <label>Edge Length Filter:</label>
+                <input type="range" id="lengthFilter" min="-1" max="0" step="1" value="-1">
+                <div id="lengthFilterLabel">All</div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

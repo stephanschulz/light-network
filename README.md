@@ -6,7 +6,7 @@ A comprehensive LED network visualization and optimization tool. This project in
 
 ## 🌐 Live Demo
 
-**[View Live Demo on GitHub Pages](https://YOUR-USERNAME.github.io/node-edge-network/network-visualizer-web/)**
+**[View Live Demo on GitHub Pages](https://stephanschulz.ca/light-network/)**
 
 *(Update the URL above with your GitHub username after deployment)*
 

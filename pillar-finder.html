@@ -167,6 +167,12 @@
             <p style="font-size: 10px; color: #888; margin-top: 4px;">
                 Points within this radius are considered on the same pillar.
             </p>
+            
+            <label>Grid Tolerance: <span id="gridToleranceValue">2.0</span> units</label>
+            <input type="range" id="gridTolerance" min="0.5" max="10" step="0.5" value="2.0">
+            <p style="font-size: 10px; color: #888; margin-top: 4px;">
+                Centroids within this distance are aligned to same grid row/column.
+            </p>
         </div>
 
         <div class="control-section">
@@ -187,6 +193,10 @@
                 <input type="checkbox" id="showLabels" checked>
                 Show Labels
             </label>
+            <label>
+                <input type="checkbox" id="showExtrapolatedGrid" checked>
+                Show Extrapolated Grid
+            </label>
             <label>Point Size: <span id="pointSizeValue">4</span></label>
             <input type="range" id="pointSize" min="1" max="15" step="1" value="4">
         </div>
@@ -200,7 +210,11 @@
                 </div>
                 <div class="legend-item">
                     <div class="legend-dot" style="background-color: #00aa00; border: 2px solid #006600;"></div>
-                    <span>Centroids</span>
+                    <span>Actual Centroids</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background-color: transparent; border: 2px dashed #ff8800;"></div>
+                    <span>Extrapolated</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-dot" style="background-color: transparent; border: 2px dashed #0066ff;"></div>

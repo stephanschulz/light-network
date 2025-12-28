@@ -10,14 +10,17 @@ class PillarFinder {
         this.rawPoints = [];  // All XY points from CSV
         this.clusters = [];   // Grouped points
         this.centroids = [];  // Calculated pillar centers
+        this.gridPoints = []; // Full grid including extrapolated points
 
         // Settings
         this.clusterRadius = 1.5;
+        this.gridTolerance = 2.0; // Tolerance for matching grid coordinates
         this.pointSize = 4;
         this.showRawPoints = true;
         this.showCentroids = true;
         this.showClusterCircles = true;
         this.showLabels = true;
+        this.showExtrapolatedGrid = true;
 
         // Transform
         this.scale = 1;
@@ -94,6 +97,20 @@ class PillarFinder {
         document.getElementById('showLabels').addEventListener('change', (e) => {
             this.showLabels = e.target.checked;
             this.draw();
+        });
+
+        document.getElementById('showExtrapolatedGrid').addEventListener('change', (e) => {
+            this.showExtrapolatedGrid = e.target.checked;
+            this.draw();
+        });
+
+        document.getElementById('gridTolerance').addEventListener('input', (e) => {
+            this.gridTolerance = parseFloat(e.target.value);
+            document.getElementById('gridToleranceValue').textContent = this.gridTolerance.toFixed(1);
+            if (this.centroids.length > 0) {
+                this.calculateExtrapolatedGrid();
+                this.draw();
+            }
         });
     }
 
@@ -289,15 +306,100 @@ class PillarFinder {
             cluster.id = i + 1;
         });
 
+        // Calculate extrapolated grid
+        this.calculateExtrapolatedGrid();
+
         this.updateResultsDisplay();
         this.draw();
+    }
+
+    calculateExtrapolatedGrid() {
+        // Extract unique X and Y coordinates from centroids (with tolerance grouping)
+        const xCoords = [];
+        const yCoords = [];
+
+        for (const c of this.centroids) {
+            // Check if this X is already close to an existing X
+            let foundX = false;
+            for (let i = 0; i < xCoords.length; i++) {
+                if (Math.abs(xCoords[i].value - c.x) < this.gridTolerance) {
+                    // Average them
+                    xCoords[i].values.push(c.x);
+                    xCoords[i].value = xCoords[i].values.reduce((a, b) => a + b, 0) / xCoords[i].values.length;
+                    foundX = true;
+                    break;
+                }
+            }
+            if (!foundX) {
+                xCoords.push({ value: c.x, values: [c.x] });
+            }
+
+            // Check if this Y is already close to an existing Y
+            let foundY = false;
+            for (let i = 0; i < yCoords.length; i++) {
+                if (Math.abs(yCoords[i].value - c.y) < this.gridTolerance) {
+                    // Average them
+                    yCoords[i].values.push(c.y);
+                    yCoords[i].value = yCoords[i].values.reduce((a, b) => a + b, 0) / yCoords[i].values.length;
+                    foundY = true;
+                    break;
+                }
+            }
+            if (!foundY) {
+                yCoords.push({ value: c.y, values: [c.y] });
+            }
+        }
+
+        // Sort the unique coordinates
+        const sortedX = xCoords.map(x => x.value).sort((a, b) => a - b);
+        const sortedY = yCoords.map(y => y.value).sort((a, b) => a - b);
+
+        // Create grid from all combinations
+        this.gridPoints = [];
+        let gridId = 1;
+
+        for (const y of sortedY) {
+            for (const x of sortedX) {
+                // Check if this grid point matches an actual centroid
+                let matchedCentroid = null;
+                for (const c of this.centroids) {
+                    const dist = Math.sqrt((c.x - x) ** 2 + (c.y - y) ** 2);
+                    if (dist < this.gridTolerance) {
+                        matchedCentroid = c;
+                        break;
+                    }
+                }
+
+                this.gridPoints.push({
+                    id: gridId++,
+                    x: x,
+                    y: y,
+                    isActual: matchedCentroid !== null,
+                    matchedCentroid: matchedCentroid,
+                    pointCount: matchedCentroid ? matchedCentroid.pointCount : 0
+                });
+            }
+        }
+
+        console.log(`Grid: ${sortedX.length} columns × ${sortedY.length} rows = ${this.gridPoints.length} total points`);
+        console.log(`  Actual: ${this.gridPoints.filter(p => p.isActual).length}`);
+        console.log(`  Extrapolated: ${this.gridPoints.filter(p => !p.isActual).length}`);
     }
 
     updateResultsDisplay() {
         const info = document.getElementById('resultsInfo');
         
+        const actualCount = this.gridPoints.filter(p => p.isActual).length;
+        const extrapolatedCount = this.gridPoints.filter(p => !p.isActual).length;
+        
         let text = `Found ${this.centroids.length} pillars from ${this.rawPoints.length} points\n`;
-        text += `Cluster radius: ${this.clusterRadius} units\n\n`;
+        text += `Cluster radius: ${this.clusterRadius} units\n`;
+        text += `Grid tolerance: ${this.gridTolerance} units\n\n`;
+        text += `Grid Summary:\n`;
+        text += `─────────────────────────────\n`;
+        text += `Total grid points: ${this.gridPoints.length}\n`;
+        text += `  Actual (with data): ${actualCount}\n`;
+        text += `  Extrapolated: ${extrapolatedCount}\n\n`;
         text += `Pillar Centroids:\n`;
         text += `─────────────────────────────\n`;
         
@@ -354,7 +456,44 @@ class PillarFinder {
             }
         }
 
-        // Draw centroids
+        // Draw extrapolated grid points (before centroids so they appear behind)
+        if (this.showExtrapolatedGrid && this.gridPoints.length > 0) {
+            for (const gridPoint of this.gridPoints) {
+                if (!gridPoint.isActual) {
+                    const pos = this.worldToCanvas(gridPoint.x, gridPoint.y);
+
+                    // Draw extrapolated point marker (hollow orange circle)
+                    this.ctx.beginPath();
+                    this.ctx.arc(pos.x, pos.y, this.pointSize + 2, 0, Math.PI * 2);
+                    this.ctx.strokeStyle = '#ff8800';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.setLineDash([3, 3]);
+                    this.ctx.stroke();
+                    this.ctx.setLineDash([]);
+
+                    // Draw X marker inside
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos.x - 4, pos.y - 4);
+                    this.ctx.lineTo(pos.x + 4, pos.y + 4);
+                    this.ctx.moveTo(pos.x + 4, pos.y - 4);
+                    this.ctx.lineTo(pos.x - 4, pos.y + 4);
+                    this.ctx.strokeStyle = '#ff8800';
+                    this.ctx.lineWidth = 1.5;
+                    this.ctx.stroke();
+
+                    // Draw label for extrapolated points
+                    if (this.showLabels) {
+                        this.ctx.fillStyle = '#ff8800';
+                        this.ctx.font = '10px Arial';
+                        this.ctx.textAlign = 'left';
+                        this.ctx.textBaseline = 'bottom';
+                        this.ctx.fillText(`E${gridPoint.id}`, pos.x + 8, pos.y - 3);
+                    }
+                }
+            }
+        }
+
+        // Draw centroids (actual data points)
         if (this.showCentroids && this.centroids.length > 0) {
             for (const centroid of this.centroids) {
                 const pos = this.worldToCanvas(centroid.x, centroid.y);
@@ -395,11 +534,14 @@ class PillarFinder {
         }
 
         // Draw title
+        const actualCount = this.gridPoints.filter(p => p.isActual).length;
+        const extrapolatedCount = this.gridPoints.filter(p => !p.isActual).length;
+        
         this.ctx.fillStyle = '#333';
         this.ctx.font = 'bold 14px Arial';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText(`Pillar Centers: ${this.centroids.length} found`, 10, 10);
+        this.ctx.fillText(`Pillar Centers: ${actualCount} actual + ${extrapolatedCount} extrapolated = ${this.gridPoints.length} total`, 10, 10);
     }
 
     drawGrid() {
@@ -430,28 +572,30 @@ class PillarFinder {
     }
 
     exportCentroids() {
-        if (this.centroids.length === 0) {
-            alert('No centroids to export. Run "Find Pillar Centers" first.');
+        if (this.gridPoints.length === 0) {
+            alert('No grid points to export. Run "Find Pillar Centers" first.');
             return;
         }
 
-        let csv = 'Pillar_ID,Center_X,Center_Y,Point_Count,Actual_Radius,Min_Z,Max_Z\n';
-        for (const c of this.centroids) {
-            csv += `${c.id},${c.x.toFixed(4)},${c.y.toFixed(4)},${c.pointCount},${c.actualRadius.toFixed(4)},${c.minZ.toFixed(4)},${c.maxZ.toFixed(4)}\n`;
+        // Export all grid points (both actual and extrapolated)
+        let csv = 'Grid_ID,Center_X,Center_Y,Type,Point_Count\n';
+        for (const g of this.gridPoints) {
+            const type = g.isActual ? 'Actual' : 'Extrapolated';
+            csv += `${g.id},${g.x.toFixed(4)},${g.y.toFixed(4)},${type},${g.pointCount}\n`;
         }
 
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'pillar_centroids.csv';
+        a.download = 'pillar_grid.csv';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        console.log('Exported pillar centroids:');
-        console.table(this.centroids);
+        console.log('Exported pillar grid:');
+        console.table(this.gridPoints);
     }
 }
 

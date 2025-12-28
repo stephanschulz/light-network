@@ -34,7 +34,7 @@
         
         .stats-panel {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 16px;
             margin-bottom: 24px;
         }
@@ -76,11 +76,14 @@
             border-radius: 12px;
             padding: 20px;
             margin-bottom: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
         }
         
         canvas {
             display: block;
-            width: 100%;
             background: #050508;
             border-radius: 8px;
         }
@@ -118,19 +121,26 @@
             margin-bottom: 24px;
         }
         
-        .controls label {
+        .slider-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 16px;
+        }
+        
+        .slider-container label {
             display: block;
             font-size: 0.85rem;
             color: #888;
             margin-bottom: 8px;
         }
         
-        .controls input[type="range"] {
+        .slider-container input[type="range"] {
             width: 100%;
             margin-bottom: 8px;
         }
         
-        .controls .range-value {
+        .slider-container .range-value {
             text-align: center;
             font-size: 1.2rem;
             color: #ffd93d;
@@ -145,7 +155,7 @@
             cursor: pointer;
             font-family: inherit;
             margin-right: 8px;
-            margin-top: 12px;
+            margin-top: 4px;
         }
         
         .toggle-btn:hover {
@@ -194,6 +204,7 @@
         td.stephan { color: #ff6b6b; }
         td.intercom { color: #4ecdc4; }
         td.corrected { color: #a855f7; }
+        td.offset { color: #ffd93d; }
     </style>
 </head>
 <body>
@@ -205,9 +216,18 @@
         </div>
         
         <div class="controls">
-            <label>Manual Y Offset Adjustment</label>
-            <input type="range" id="offsetSlider" min="-150" max="150" step="0.1" value="0">
-            <div class="range-value" id="sliderValue">0.000</div>
+            <div class="slider-group">
+                <div class="slider-container">
+                    <label>X Offset Adjustment</label>
+                    <input type="range" id="xOffsetSlider" min="-150" max="150" step="0.1" value="0">
+                    <div class="range-value" id="xSliderValue">0.000</div>
+                </div>
+                <div class="slider-container">
+                    <label>Y Offset Adjustment</label>
+                    <input type="range" id="yOffsetSlider" min="-150" max="150" step="0.1" value="0">
+                    <div class="range-value" id="ySliderValue">0.000</div>
+                </div>
+            </div>
             <button class="toggle-btn active" id="showStephan">Stephan Points</button>
             <button class="toggle-btn active" id="showIntercom">Intercom (Original)</button>
             <button class="toggle-btn active" id="showCorrected">Intercom (Corrected)</button>
@@ -215,7 +235,7 @@
         </div>
         
         <div class="canvas-container">
-            <canvas id="canvas" width="1200" height="700"></canvas>
+            <canvas id="canvas"></canvas>
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-dot stephan"></div>
@@ -227,7 +247,7 @@
                 </div>
                 <div class="legend-item">
                     <div class="legend-dot corrected"></div>
-                    <span>Intercom Points (Y-corrected)</span>
+                    <span>Intercom Points (corrected)</span>
                 </div>
             </div>
         </div>
@@ -241,8 +261,10 @@
                         <th>Original X</th>
                         <th>Original Y</th>
                         <th>Original Z</th>
+                        <th>Corrected X</th>
                         <th>Corrected Y</th>
-                        <th>Offset Applied</th>
+                        <th>X Offset</th>
+                        <th>Y Offset</th>
                     </tr>
                 </thead>
                 <tbody></tbody>
@@ -470,37 +492,33 @@
         const stephanPoints = Array.from(stephanPointsMap.values());
 
         // Calculate statistics
+        const intercomXValues = intercomPoints.map(p => p.x);
         const intercomYValues = intercomPoints.map(p => p.y);
+        const stephanXValues = stephanPoints.map(p => p.x);
         const stephanYValues = stephanPoints.map(p => p.y);
+
+        const intercomXMin = Math.min(...intercomXValues);
+        const intercomXMax = Math.max(...intercomXValues);
+        const intercomXMean = intercomXValues.reduce((a, b) => a + b, 0) / intercomXValues.length;
 
         const intercomYMin = Math.min(...intercomYValues);
         const intercomYMax = Math.max(...intercomYValues);
         const intercomYMean = intercomYValues.reduce((a, b) => a + b, 0) / intercomYValues.length;
 
+        const stephanXMin = Math.min(...stephanXValues);
+        const stephanXMax = Math.max(...stephanXValues);
+        const stephanXMean = stephanXValues.reduce((a, b) => a + b, 0) / stephanXValues.length;
+
         const stephanYMin = Math.min(...stephanYValues);
         const stephanYMax = Math.max(...stephanYValues);
         const stephanYMean = stephanYValues.reduce((a, b) => a + b, 0) / stephanYValues.length;
 
-        // Calculate X ranges for reference
-        const intercomXValues = intercomPoints.map(p => p.x);
-        const stephanXValues = stephanPoints.map(p => p.x);
-        const intercomXMin = Math.min(...intercomXValues);
-        const intercomXMax = Math.max(...intercomXValues);
-        const stephanXMin = Math.min(...stephanXValues);
-        const stephanXMax = Math.max(...stephanXValues);
+        // Calculate offsets (by mean)
+        const calculatedXOffset = stephanXMean - intercomXMean;
+        const calculatedYOffset = stephanYMean - intercomYMean;
 
-        // Calculate offsets
-        const yOffsetByMean = stephanYMean - intercomYMean;
-        const yOffsetByMin = stephanYMin - intercomYMin;
-        const yOffsetByMax = stephanYMax - intercomYMax;
-
-        // Best estimate: align the ranges
-        // Intercom Y range: intercomYMin to intercomYMax
-        // Stephan Y range: stephanYMin to stephanYMax
-        // If intercom sits "under", we need to shift it up
-        const calculatedOffset = yOffsetByMean;
-
-        let manualOffset = calculatedOffset;
+        let xOffset = calculatedXOffset;
+        let yOffset = calculatedYOffset;
 
         // Display settings
         let showStephan = true;
@@ -513,23 +531,28 @@
                 <div class="stat-card">
                     <h3>Stephan Points</h3>
                     <div class="value stephan">${stephanPoints.length} points</div>
-                    <div class="detail">Y range: ${stephanYMin.toFixed(3)} to ${stephanYMax.toFixed(3)}</div>
-                    <div class="detail">Y mean: ${stephanYMean.toFixed(3)}</div>
+                    <div class="detail">X: ${stephanXMin.toFixed(1)} to ${stephanXMax.toFixed(1)} (mean: ${stephanXMean.toFixed(1)})</div>
+                    <div class="detail">Y: ${stephanYMin.toFixed(1)} to ${stephanYMax.toFixed(1)} (mean: ${stephanYMean.toFixed(1)})</div>
                 </div>
                 <div class="stat-card">
                     <h3>Intercom Points</h3>
                     <div class="value intercom">${intercomPoints.length} points</div>
-                    <div class="detail">Y range: ${intercomYMin.toFixed(3)} to ${intercomYMax.toFixed(3)}</div>
-                    <div class="detail">Y mean: ${intercomYMean.toFixed(3)}</div>
+                    <div class="detail">X: ${intercomXMin.toFixed(1)} to ${intercomXMax.toFixed(1)} (mean: ${intercomXMean.toFixed(1)})</div>
+                    <div class="detail">Y: ${intercomYMin.toFixed(1)} to ${intercomYMax.toFixed(1)} (mean: ${intercomYMean.toFixed(1)})</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Calculated Y Offset (by mean)</h3>
-                    <div class="value offset">${yOffsetByMean.toFixed(3)}</div>
-                    <div class="detail">Intercom Y + ${yOffsetByMean.toFixed(3)} → aligned</div>
+                    <h3>Calculated X Offset</h3>
+                    <div class="value offset">${calculatedXOffset.toFixed(3)}</div>
+                    <div class="detail">By mean alignment</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Current Y Offset</h3>
-                    <div class="value corrected">${manualOffset.toFixed(3)}</div>
+                    <h3>Calculated Y Offset</h3>
+                    <div class="value offset">${calculatedYOffset.toFixed(3)}</div>
+                    <div class="detail">By mean alignment</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Current Offsets</h3>
+                    <div class="value corrected">X: ${xOffset.toFixed(1)}, Y: ${yOffset.toFixed(1)}</div>
                     <div class="detail">Applied to intercom points</div>
                 </div>
             `;
@@ -541,30 +564,66 @@
 
         function draw() {
             const dpr = window.devicePixelRatio || 1;
-            canvas.width = canvas.clientWidth * dpr;
-            canvas.height = canvas.clientHeight * dpr;
-            ctx.scale(dpr, dpr);
-
-            const width = canvas.clientWidth;
-            const height = canvas.clientHeight;
+            const containerWidth = canvas.parentElement.clientWidth - 40;
+            const maxHeight = 800;
             const padding = 60;
 
-            // Clear
-            ctx.fillStyle = '#050508';
-            ctx.fillRect(0, 0, width, height);
-
-            // Calculate bounds (include all points with offset)
-            const allX = [...stephanXValues, ...intercomXValues];
-            const allY = [...stephanYValues, ...intercomYValues, ...intercomYValues.map(y => y + manualOffset)];
+            // Calculate bounds (include all points with offsets applied)
+            const allX = [...stephanXValues, ...intercomXValues, ...intercomXValues.map(x => x + xOffset)];
+            const allY = [...stephanYValues, ...intercomYValues, ...intercomYValues.map(y => y + yOffset)];
             
             const xMin = Math.min(...allX) - 5;
             const xMax = Math.max(...allX) + 5;
             const yMin = Math.min(...allY) - 5;
             const yMax = Math.max(...allY) + 5;
 
-            // Scale functions
-            const scaleX = (x) => padding + ((x - xMin) / (xMax - xMin)) * (width - 2 * padding);
-            const scaleY = (y) => height - padding - ((y - yMin) / (yMax - yMin)) * (height - 2 * padding);
+            const dataWidth = xMax - xMin;
+            const dataHeight = yMax - yMin;
+            const aspectRatio = dataWidth / dataHeight;
+
+            // Calculate canvas size maintaining aspect ratio
+            let canvasWidth, canvasHeight;
+            const availableWidth = containerWidth - 2 * padding;
+            const availableHeight = maxHeight - 2 * padding;
+
+            if (aspectRatio > availableWidth / availableHeight) {
+                // Width-constrained
+                canvasWidth = containerWidth;
+                canvasHeight = (containerWidth - 2 * padding) / aspectRatio + 2 * padding;
+            } else {
+                // Height-constrained
+                canvasHeight = maxHeight;
+                canvasWidth = (maxHeight - 2 * padding) * aspectRatio + 2 * padding;
+            }
+
+            canvas.style.width = canvasWidth + 'px';
+            canvas.style.height = canvasHeight + 'px';
+            canvas.width = canvasWidth * dpr;
+            canvas.height = canvasHeight * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = canvasWidth;
+            const height = canvasHeight;
+
+            // Clear
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, width, height);
+
+            // Use same scale for X and Y to maintain aspect ratio
+            const scale = Math.min(
+                (width - 2 * padding) / dataWidth,
+                (height - 2 * padding) / dataHeight
+            );
+
+            // Center the drawing
+            const drawWidth = dataWidth * scale;
+            const drawHeight = dataHeight * scale;
+            const offsetX = (width - drawWidth) / 2;
+            const offsetY = (height - drawHeight) / 2;
+
+            // Scale functions (1:1 aspect ratio)
+            const scaleX = (x) => offsetX + (x - xMin) * scale;
+            const scaleY = (y) => height - offsetY - (y - yMin) * scale;
 
             // Draw grid
             ctx.strokeStyle = '#1a1a2a';
@@ -573,16 +632,16 @@
             // Vertical grid lines
             for (let x = Math.ceil(xMin / 10) * 10; x <= xMax; x += 10) {
                 ctx.beginPath();
-                ctx.moveTo(scaleX(x), padding);
-                ctx.lineTo(scaleX(x), height - padding);
+                ctx.moveTo(scaleX(x), scaleY(yMin));
+                ctx.lineTo(scaleX(x), scaleY(yMax));
                 ctx.stroke();
             }
             
             // Horizontal grid lines
             for (let y = Math.ceil(yMin / 10) * 10; y <= yMax; y += 10) {
                 ctx.beginPath();
-                ctx.moveTo(padding, scaleY(y));
-                ctx.lineTo(width - padding, scaleY(y));
+                ctx.moveTo(scaleX(xMin), scaleY(y));
+                ctx.lineTo(scaleX(xMax), scaleY(y));
                 ctx.stroke();
             }
 
@@ -592,19 +651,19 @@
             ctx.textAlign = 'center';
             
             for (let x = Math.ceil(xMin / 20) * 20; x <= xMax; x += 20) {
-                ctx.fillText(x.toFixed(0), scaleX(x), height - padding + 20);
+                ctx.fillText(x.toFixed(0), scaleX(x), scaleY(yMin) + 20);
             }
             
             ctx.textAlign = 'right';
             for (let y = Math.ceil(yMin / 20) * 20; y <= yMax; y += 20) {
-                ctx.fillText(y.toFixed(0), padding - 10, scaleY(y) + 4);
+                ctx.fillText(y.toFixed(0), scaleX(xMin) - 10, scaleY(y) + 4);
             }
 
             // Axis labels
             ctx.fillStyle = '#888';
             ctx.font = '12px JetBrains Mono, monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('X', width / 2, height - 15);
+            ctx.fillText('X', width / 2, height - 10);
             ctx.save();
             ctx.translate(15, height / 2);
             ctx.rotate(-Math.PI / 2);
@@ -617,7 +676,7 @@
                 ctx.fillStyle = '#ff6b6b';
                 stephanPoints.forEach(p => {
                     ctx.beginPath();
-                    ctx.arc(scaleX(p.x), scaleY(p.y), 3, 0, Math.PI * 2);
+                    ctx.arc(scaleX(p.x), scaleY(p.y), 4, 0, Math.PI * 2);
                     ctx.fill();
                 });
             }
@@ -627,30 +686,32 @@
                 ctx.fillStyle = '#4ecdc4';
                 intercomPoints.forEach(p => {
                     ctx.beginPath();
-                    ctx.arc(scaleX(p.x), scaleY(p.y), 6, 0, Math.PI * 2);
+                    ctx.arc(scaleX(p.x), scaleY(p.y), 8, 0, Math.PI * 2);
                     ctx.fill();
                 });
             }
 
             // Intercom corrected (purple)
             if (showCorrected) {
-                ctx.fillStyle = '#a855f7';
                 ctx.strokeStyle = '#a855f7';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 3;
                 intercomPoints.forEach(p => {
-                    const correctedY = p.y + manualOffset;
+                    const correctedX = p.x + xOffset;
+                    const correctedY = p.y + yOffset;
                     ctx.beginPath();
-                    ctx.arc(scaleX(p.x), scaleY(correctedY), 8, 0, Math.PI * 2);
+                    ctx.arc(scaleX(correctedX), scaleY(correctedY), 10, 0, Math.PI * 2);
                     ctx.stroke();
                     
                     // Draw connection line from original to corrected
                     if (showIntercom) {
                         ctx.beginPath();
+                        ctx.lineWidth = 1;
                         ctx.setLineDash([4, 4]);
                         ctx.moveTo(scaleX(p.x), scaleY(p.y));
-                        ctx.lineTo(scaleX(p.x), scaleY(correctedY));
+                        ctx.lineTo(scaleX(correctedX), scaleY(correctedY));
                         ctx.stroke();
                         ctx.setLineDash([]);
+                        ctx.lineWidth = 3;
                     }
                 });
             }
@@ -665,19 +726,32 @@
                     <td class="intercom">${p.x.toFixed(3)}</td>
                     <td class="intercom">${p.y.toFixed(3)}</td>
                     <td class="intercom">${p.z.toFixed(3)}</td>
-                    <td class="corrected">${(p.y + manualOffset).toFixed(3)}</td>
-                    <td class="offset">${manualOffset.toFixed(3)}</td>
+                    <td class="corrected">${(p.x + xOffset).toFixed(3)}</td>
+                    <td class="corrected">${(p.y + yOffset).toFixed(3)}</td>
+                    <td class="offset">${xOffset.toFixed(3)}</td>
+                    <td class="offset">${yOffset.toFixed(3)}</td>
                 </tr>
             `).join('');
         }
 
         // Event handlers
-        const slider = document.getElementById('offsetSlider');
-        slider.value = calculatedOffset;
+        const xSlider = document.getElementById('xOffsetSlider');
+        const ySlider = document.getElementById('yOffsetSlider');
         
-        slider.addEventListener('input', () => {
-            manualOffset = parseFloat(slider.value);
-            document.getElementById('sliderValue').textContent = manualOffset.toFixed(3);
+        xSlider.value = calculatedXOffset;
+        ySlider.value = calculatedYOffset;
+        
+        xSlider.addEventListener('input', () => {
+            xOffset = parseFloat(xSlider.value);
+            document.getElementById('xSliderValue').textContent = xOffset.toFixed(3);
+            updateStats();
+            updateTable();
+            draw();
+        });
+
+        ySlider.addEventListener('input', () => {
+            yOffset = parseFloat(ySlider.value);
+            document.getElementById('ySliderValue').textContent = yOffset.toFixed(3);
             updateStats();
             updateTable();
             draw();
@@ -702,16 +776,20 @@
         });
 
         document.getElementById('autoFit').addEventListener('click', function() {
-            manualOffset = calculatedOffset;
-            slider.value = calculatedOffset;
-            document.getElementById('sliderValue').textContent = calculatedOffset.toFixed(3);
+            xOffset = calculatedXOffset;
+            yOffset = calculatedYOffset;
+            xSlider.value = calculatedXOffset;
+            ySlider.value = calculatedYOffset;
+            document.getElementById('xSliderValue').textContent = calculatedXOffset.toFixed(3);
+            document.getElementById('ySliderValue').textContent = calculatedYOffset.toFixed(3);
             updateStats();
             updateTable();
             draw();
         });
 
         // Initial render
-        document.getElementById('sliderValue').textContent = calculatedOffset.toFixed(3);
+        document.getElementById('xSliderValue').textContent = calculatedXOffset.toFixed(3);
+        document.getElementById('ySliderValue').textContent = calculatedYOffset.toFixed(3);
         updateStats();
         updateTable();
         draw();
@@ -723,12 +801,12 @@
         console.log('=== OFFSET ANALYSIS ===');
         console.log(`Intercom points: ${intercomPoints.length}`);
         console.log(`Stephan points: ${stephanPoints.length}`);
+        console.log(`\nIntercom X range: ${intercomXMin.toFixed(3)} to ${intercomXMax.toFixed(3)} (mean: ${intercomXMean.toFixed(3)})`);
+        console.log(`Stephan X range: ${stephanXMin.toFixed(3)} to ${stephanXMax.toFixed(3)} (mean: ${stephanXMean.toFixed(3)})`);
         console.log(`\nIntercom Y range: ${intercomYMin.toFixed(3)} to ${intercomYMax.toFixed(3)} (mean: ${intercomYMean.toFixed(3)})`);
         console.log(`Stephan Y range: ${stephanYMin.toFixed(3)} to ${stephanYMax.toFixed(3)} (mean: ${stephanYMean.toFixed(3)})`);
-        console.log(`\nCalculated Y offset (by mean): ${yOffsetByMean.toFixed(3)}`);
-        console.log(`Y offset (by min): ${yOffsetByMin.toFixed(3)}`);
-        console.log(`Y offset (by max): ${yOffsetByMax.toFixed(3)}`);
+        console.log(`\nCalculated X offset: ${calculatedXOffset.toFixed(3)}`);
+        console.log(`Calculated Y offset: ${calculatedYOffset.toFixed(3)}`);
     </script>
 </body>
 </html>
-

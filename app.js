@@ -17,6 +17,8 @@ class NetworkVisualizer {
         this.intercomNodes = new Set();
         this.intercomEdges = [];
         this.intercomEditMode = false;
+        this.edgeFlipMode = false;
+        this.yFlipped = false;
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -136,6 +138,12 @@ class NetworkVisualizer {
             this.printNodeResults();
         });
 
+        document.getElementById('flipYToggle').addEventListener('change', (e) => {
+            this.yFlipped = e.target.checked;
+            console.log(`Y display: ${this.yFlipped ? 'Flipped' : 'Normal'}`);
+            this.drawNetwork();
+        });
+
         // Mouse events for tooltips
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
         
@@ -148,6 +156,17 @@ class NetworkVisualizer {
             this.canvas.style.cursor = this.intercomEditMode ? 'crosshair' : 'default';
         });
 
+        // Edge flip mode toggle
+        document.getElementById('edgeFlipMode').addEventListener('change', (e) => {
+            this.edgeFlipMode = e.target.checked;
+            document.getElementById('edgeFlipHelp').style.display = this.edgeFlipMode ? 'block' : 'none';
+            if (this.edgeFlipMode) {
+                this.canvas.style.cursor = 'pointer';
+            } else if (!this.intercomEditMode) {
+                this.canvas.style.cursor = 'default';
+            }
+        });
+
         // Clear all intercoms button
         document.getElementById('clearIntercomsBtn').addEventListener('click', () => {
             this.intercomNodes.clear();
@@ -156,7 +175,7 @@ class NetworkVisualizer {
             if (this.artnetOptimization) {
                 this.optimizeArtNet();
             }
-            this.draw();
+            this.drawNetwork();
         });
     }
 
@@ -168,12 +187,18 @@ class NetworkVisualizer {
     }
 
     handleNodeClick(e) {
-        // Only handle clicks in intercom edit mode
-        if (!this.intercomEditMode) return;
-
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+
+        // Handle edge flip mode
+        if (this.edgeFlipMode && this.artnetOptimization) {
+            this.handleEdgeFlipClick(x, y);
+            return;
+        }
+
+        // Only handle node clicks in intercom edit mode
+        if (!this.intercomEditMode) return;
 
         // Find clicked node
         for (const nodeStr of this.nodes) {
@@ -211,15 +236,107 @@ class NetworkVisualizer {
                     this.optimizeArtNet();
                 }
                 
-                this.draw();
+                this.drawNetwork();
                 return;
             }
         }
     }
 
+    handleEdgeFlipClick(canvasX, canvasY) {
+        // Find edge that is close to the click (check distance to edge line)
+        const clickThreshold = 15; // pixels
+        let closestEdge = null;
+        let closestDist = Infinity;
+
+        console.log(`Edge flip click at canvas (${canvasX.toFixed(0)}, ${canvasY.toFixed(0)})`);
+
+        for (const edge of this.edges) {
+            const dir = this.artnetOptimization.edgeDirections.get(edge);
+            if (!dir) continue;
+
+            // Get both endpoints in canvas coordinates
+            const start = this.parseNode(edge.start);
+            const end = this.parseNode(edge.end);
+            const startPos = this.worldToCanvas(start.x, start.y);
+            const endPos = this.worldToCanvas(end.x, end.y);
+
+            // Calculate distance from click to edge line segment
+            const dist = this.pointToLineDistance(canvasX, canvasY, startPos.x, startPos.y, endPos.x, endPos.y);
+
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestEdge = edge;
+            }
+        }
+
+        console.log(`Closest edge: ${closestEdge ? closestEdge.id : 'none'}, distance: ${closestDist.toFixed(1)}px`);
+
+        if (closestEdge && closestDist <= clickThreshold) {
+            this.flipEdgeDirection(closestEdge);
+        } else {
+            console.log(`No edge within ${clickThreshold}px threshold`);
+        }
+    }
+
+    pointToLineDistance(px, py, x1, y1, x2, y2) {
+        // Calculate perpendicular distance from point to line segment
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        
+        if (lenSq === 0) {
+            // Line segment is a point
+            return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+        }
+
+        // Project point onto line, clamped to segment
+        let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+
+        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+    }
+
+    flipEdgeDirection(edge) {
+        const dir = this.artnetOptimization.edgeDirections.get(edge);
+        if (!dir) return;
+
+        const oldStart = dir.start;
+        const oldEnd = dir.end;
+        const oldStartY = this.parseNode(oldStart).y;
+        const newStartY = this.parseNode(oldEnd).y;
+
+        // Flip the direction
+        this.artnetOptimization.edgeDirections.set(edge, {
+            start: oldEnd,
+            end: oldStart
+        });
+
+        // Update row power
+        const rowPower = this.artnetOptimization.rowPower;
+        rowPower.set(oldStartY, (rowPower.get(oldStartY) || 1) - 1);
+        rowPower.set(newStartY, (rowPower.get(newStartY) || 0) + 1);
+
+        // Update node output counts
+        const outputs = this.artnetOptimization.artnetOutputCounts;
+        if (outputs) {
+            outputs.set(oldStart, (outputs.get(oldStart) || 1) - 1);
+            outputs.set(oldEnd, (outputs.get(oldEnd) || 0) + 1);
+        }
+
+        console.log(`Flipped edge ${edge.id}: ${oldStart} → ${oldEnd} becomes ${oldEnd} → ${oldStart}`);
+        console.log(`Row power: Y=${oldStartY.toFixed(1)} now ${rowPower.get(oldStartY)}A, Y=${newStartY.toFixed(1)} now ${rowPower.get(newStartY)}A`);
+
+        // Update display
+        this.updateArtNetInfo();
+        this.drawNetwork();
+    }
+
     async loadDefaultCSV() {
         try {
-            const response = await fetch('./data/Dec-28_001_stephan.csv');
+            const response = await fetch('./data/CSV_Dec26_003-s3.csv');
             const text = await response.text();
             this.parseCSV(text);
         } catch (error) {
@@ -490,7 +607,13 @@ class NetworkVisualizer {
     // Coordinate transformation functions
     worldToCanvas(worldX, worldY) {
         const x = (worldX - this.worldMinX) * this.scale + this.offsetX;
-        const y = (worldY - this.worldMinY) * this.scale + this.offsetY;
+        let y;
+        if (this.yFlipped) {
+            // Flip Y: map worldMaxY to top, worldMinY to bottom
+            y = (this.worldMaxY - worldY) * this.scale + this.offsetY;
+        } else {
+            y = (worldY - this.worldMinY) * this.scale + this.offsetY;
+        }
         return { x, y };
     }
 
@@ -1719,11 +1842,18 @@ class NetworkVisualizer {
 
         let csv = 'ID,start_X,start_Y,start_Z,end_X,end_Y,end_Z,Edge_Length,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID,Type\n';
 
+        // Calculate center Y for flipping
+        const centerY = (this.worldMinY + this.worldMaxY) / 2;
+
         for (const edge of this.edges) {
             const edgeId = this.edgeIds.get(edge) || '?';
             const start = this.parseNode(edge.start);
             const end = this.parseNode(edge.end);
             const length = this.calculateEdgeLength(edge);
+
+            // Apply Y flip if toggle is on
+            const startY = this.yFlipped ? (2 * centerY - start.y) : start.y;
+            const endY = this.yFlipped ? (2 * centerY - end.y) : end.y;
 
             const isIntercom = this.intercomEdges.includes(edge);
             let flowStartId, flowEndId;
@@ -1752,7 +1882,7 @@ class NetworkVisualizer {
 
             const edgeType = isIntercom ? 'Intercom' : 'Normal';
 
-            csv += `${edgeId},${start.x},${start.y},${start.z},${end.x},${end.y},${end.z},${length.toFixed(2)},${flowStartId},${flowEndId},${edgeType}\n`;
+            csv += `${edgeId},${start.x},${startY},${start.z},${end.x},${endY},${end.z},${length.toFixed(2)},${flowStartId},${flowEndId},${edgeType}\n`;
         }
 
         this.downloadCSV('edge_data_export.csv', csv);

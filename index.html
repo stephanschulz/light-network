@@ -39,6 +39,10 @@
                 <input type="file" id="csvFileInput" accept=".csv" style="display:none">
                 <button id="exportEdgesBtn" class="btn">Export Edge Data</button>
                 <button id="printResultsBtn" class="btn">Print Node Results</button>
+                <label>
+                    <input type="checkbox" id="flipYToggle">
+                    Flip Y Coordinates
+                </label>
             </div>
 
             <!-- ArtNet Optimization -->
@@ -53,6 +57,14 @@
                     <input type="checkbox" id="showGrid">
                     Show Grid
                 </label>
+                <label>
+                    <input type="checkbox" id="edgeFlipMode">
+                    Enable Edge Flip Mode
+                </label>
+                <p id="edgeFlipHelp" style="font-size: 10px; color: #666; margin-bottom: 6px; display: none;">
+                    Click near an edge's start (arrow base) to flip direction.<br>
+                    Power will be recalculated.
+                </p>
                 <div id="artnetInfo" class="info-box">Click 'Optimize' to analyze</div>
             </div>
 

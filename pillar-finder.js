@@ -24,6 +24,11 @@ class PillarFinder {
         this.showEdgeIds = false;
         this.showEdges = true;
         this.showExtrapolatedGrid = true;
+        this.snapToGrid = true;
+        
+        // Binned grid lines (populated by snapCentroidsToGrid)
+        this.gridColumnX = [];
+        this.gridRowY = [];
 
         // Transform
         this.scale = 1;
@@ -128,9 +133,15 @@ class PillarFinder {
         document.getElementById('gridTolerance').addEventListener('input', (e) => {
             this.gridTolerance = parseFloat(e.target.value);
             document.getElementById('gridToleranceValue').textContent = this.gridTolerance.toFixed(1);
-            if (this.centroids.length > 0) {
-                this.calculateExtrapolatedGrid();
-                this.draw();
+            if (this.rawPoints.length > 0) {
+                this.findPillarCenters();
+            }
+        });
+
+        document.getElementById('snapToGrid').addEventListener('change', (e) => {
+            this.snapToGrid = e.target.checked;
+            if (this.rawPoints.length > 0) {
+                this.findPillarCenters();
             }
         });
     }
@@ -223,7 +234,8 @@ class PillarFinder {
     worldToCanvas(x, y) {
         return {
             x: this.offsetX + (x - this.worldMinX) * this.scale,
-            y: this.offsetY + (y - this.worldMinY) * this.scale
+            // Flip Y axis: higher world Y values appear at top of canvas
+            y: this.offsetY + (this.worldMaxY - y) * this.scale
         };
     }
 
@@ -320,6 +332,8 @@ class PillarFinder {
                 id: pillarId,
                 x: centroidX,
                 y: centroidY,
+                rawX: centroidX,  // Store original position
+                rawY: centroidY,
                 pointCount: points.length,
                 actualRadius: maxDist,
                 minZ: minZ,
@@ -328,6 +342,11 @@ class PillarFinder {
             });
 
             pillarId++;
+        }
+
+        // Snap centroids to a regular grid if enabled
+        if (this.snapToGrid && this.centroids.length > 0) {
+            this.snapCentroidsToGrid();
         }
 
         // Sort centroids by position (top-left to bottom-right)
@@ -351,6 +370,84 @@ class PillarFinder {
 
         this.updateResultsDisplay();
         this.draw();
+    }
+
+    // Snap centroids to a regular grid by binning X and Y coordinates
+    snapCentroidsToGrid() {
+        // Step 1: Bin X coordinates to find column positions
+        const xBins = [];
+        for (const c of this.centroids) {
+            let foundBin = false;
+            for (const bin of xBins) {
+                if (Math.abs(bin.center - c.rawX) < this.gridTolerance) {
+                    bin.values.push(c.rawX);
+                    bin.center = bin.values.reduce((a, b) => a + b, 0) / bin.values.length;
+                    foundBin = true;
+                    break;
+                }
+            }
+            if (!foundBin) {
+                xBins.push({ center: c.rawX, values: [c.rawX] });
+            }
+        }
+
+        // Step 2: Bin Y coordinates to find row positions
+        const yBins = [];
+        for (const c of this.centroids) {
+            let foundBin = false;
+            for (const bin of yBins) {
+                if (Math.abs(bin.center - c.rawY) < this.gridTolerance) {
+                    bin.values.push(c.rawY);
+                    bin.center = bin.values.reduce((a, b) => a + b, 0) / bin.values.length;
+                    foundBin = true;
+                    break;
+                }
+            }
+            if (!foundBin) {
+                yBins.push({ center: c.rawY, values: [c.rawY] });
+            }
+        }
+
+        // Sort bins for consistent ordering
+        xBins.sort((a, b) => a.center - b.center);
+        yBins.sort((a, b) => a.center - b.center);
+
+        // Store binned grid lines for drawing
+        this.gridColumnX = xBins.map(b => b.center);
+        this.gridRowY = yBins.map(b => b.center);
+
+        console.log(`Grid snapping: Found ${xBins.length} columns and ${yBins.length} rows`);
+        console.log('Column X positions:', this.gridColumnX.map(x => x.toFixed(2)).join(', '));
+        console.log('Row Y positions:', this.gridRowY.map(y => y.toFixed(2)).join(', '));
+
+        // Step 3: Snap each centroid to the nearest grid intersection
+        for (const c of this.centroids) {
+            // Find nearest column
+            let nearestX = c.rawX;
+            let minXDist = Infinity;
+            for (const bin of xBins) {
+                const dist = Math.abs(bin.center - c.rawX);
+                if (dist < minXDist) {
+                    minXDist = dist;
+                    nearestX = bin.center;
+                }
+            }
+
+            // Find nearest row
+            let nearestY = c.rawY;
+            let minYDist = Infinity;
+            for (const bin of yBins) {
+                const dist = Math.abs(bin.center - c.rawY);
+                if (dist < minYDist) {
+                    minYDist = dist;
+                    nearestY = bin.center;
+                }
+            }
+
+            // Update centroid position
+            c.x = nearestX;
+            c.y = nearestY;
+        }
     }
 
     calculateExtrapolatedGrid() {
@@ -577,29 +674,61 @@ class PillarFinder {
     }
 
     drawGrid() {
-        const gridSpacing = 10; // 10 unit grid
-        
-        this.ctx.strokeStyle = '#eee';
-        this.ctx.lineWidth = 1;
-
-        // Vertical lines
-        for (let x = Math.floor(this.worldMinX / gridSpacing) * gridSpacing; x <= this.worldMaxX; x += gridSpacing) {
-            const pos = this.worldToCanvas(x, this.worldMinY);
-            const posEnd = this.worldToCanvas(x, this.worldMaxY);
-            this.ctx.beginPath();
-            this.ctx.moveTo(pos.x, pos.y);
-            this.ctx.lineTo(posEnd.x, posEnd.y);
-            this.ctx.stroke();
+        // Draw binned grid lines if available (from snapCentroidsToGrid)
+        if (this.gridColumnX && this.gridColumnX.length > 0) {
+            // Draw vertical lines at binned column positions
+            this.ctx.strokeStyle = 'rgba(0, 150, 255, 0.3)';
+            this.ctx.lineWidth = 1;
+            
+            for (const x of this.gridColumnX) {
+                const pos = this.worldToCanvas(x, this.worldMinY);
+                const posEnd = this.worldToCanvas(x, this.worldMaxY);
+                this.ctx.beginPath();
+                this.ctx.moveTo(pos.x, pos.y);
+                this.ctx.lineTo(posEnd.x, posEnd.y);
+                this.ctx.stroke();
+            }
         }
 
-        // Horizontal lines
-        for (let y = Math.floor(this.worldMinY / gridSpacing) * gridSpacing; y <= this.worldMaxY; y += gridSpacing) {
-            const pos = this.worldToCanvas(this.worldMinX, y);
-            const posEnd = this.worldToCanvas(this.worldMaxX, y);
-            this.ctx.beginPath();
-            this.ctx.moveTo(pos.x, pos.y);
-            this.ctx.lineTo(posEnd.x, posEnd.y);
-            this.ctx.stroke();
+        if (this.gridRowY && this.gridRowY.length > 0) {
+            // Draw horizontal lines at binned row positions
+            this.ctx.strokeStyle = 'rgba(0, 150, 255, 0.3)';
+            this.ctx.lineWidth = 1;
+            
+            for (const y of this.gridRowY) {
+                const pos = this.worldToCanvas(this.worldMinX, y);
+                const posEnd = this.worldToCanvas(this.worldMaxX, y);
+                this.ctx.beginPath();
+                this.ctx.moveTo(pos.x, pos.y);
+                this.ctx.lineTo(posEnd.x, posEnd.y);
+                this.ctx.stroke();
+            }
+        }
+
+        // Fallback: draw light background grid if no binned lines
+        if ((!this.gridColumnX || this.gridColumnX.length === 0) && 
+            (!this.gridRowY || this.gridRowY.length === 0)) {
+            const gridSpacing = 10;
+            this.ctx.strokeStyle = '#eee';
+            this.ctx.lineWidth = 1;
+
+            for (let x = Math.floor(this.worldMinX / gridSpacing) * gridSpacing; x <= this.worldMaxX; x += gridSpacing) {
+                const pos = this.worldToCanvas(x, this.worldMinY);
+                const posEnd = this.worldToCanvas(x, this.worldMaxY);
+                this.ctx.beginPath();
+                this.ctx.moveTo(pos.x, pos.y);
+                this.ctx.lineTo(posEnd.x, posEnd.y);
+                this.ctx.stroke();
+            }
+
+            for (let y = Math.floor(this.worldMinY / gridSpacing) * gridSpacing; y <= this.worldMaxY; y += gridSpacing) {
+                const pos = this.worldToCanvas(this.worldMinX, y);
+                const posEnd = this.worldToCanvas(this.worldMaxX, y);
+                this.ctx.beginPath();
+                this.ctx.moveTo(pos.x, pos.y);
+                this.ctx.lineTo(posEnd.x, posEnd.y);
+                this.ctx.stroke();
+            }
         }
     }
 

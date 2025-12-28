@@ -159,7 +159,7 @@ class NetworkVisualizer {
 
     async loadDefaultCSV() {
         try {
-            const response = await fetch('../Dec-27-stephan.csv');
+            const response = await fetch('../Oct10_003_stephan.csv');
             const text = await response.text();
             this.parseCSV(text);
         } catch (error) {

@@ -809,16 +809,22 @@ class PillarFinder {
             return closestPillar;
         };
 
-        let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar\n';
+        let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar,Length\n';
         
         for (const edge of this.edges) {
             // Find which pillar the start and end points belong to
             const startPillar = findPillarForPoint(edge.startX, edge.startY);
             const endPillar = findPillarForPoint(edge.endX, edge.endY);
             
+            // Calculate 3D length of edge
+            const dx = edge.endX - edge.startX;
+            const dy = edge.endY - edge.startY;
+            const dz = edge.endZ - edge.startZ;
+            const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            
             csv += `${edge.id},${edge.startX.toFixed(4)},${edge.startY.toFixed(4)},${edge.startZ.toFixed(4)},`;
             csv += `${edge.endX.toFixed(4)},${edge.endY.toFixed(4)},${edge.endZ.toFixed(4)},`;
-            csv += `${edge.type},${startPillar},${endPillar}\n`;
+            csv += `${edge.type},${startPillar},${endPillar},${length.toFixed(4)}\n`;
         }
 
         const blob = new Blob([csv], { type: 'text/csv' });

@@ -1085,17 +1085,11 @@ class NetworkVisualizer {
         this.ctx.textBaseline = 'top';
         this.ctx.fillText(`${width.toFixed(1)}m`, (topLeft.x + bottomRight.x) / 2, bottomRight.y + 15);
 
-        // Left & right height (rotated) - moved further away from rectangle
+        // Left height (rotated) - moved further away from rectangle
+        // Right side omitted to avoid overlap with power amperage values
         this.ctx.save();
         this.ctx.translate(topLeft.x - 25, (topLeft.y + bottomRight.y) / 2);
         this.ctx.rotate(-Math.PI / 2);
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(`${height.toFixed(1)}m`, 0, 0);
-        this.ctx.restore();
-
-        this.ctx.save();
-        this.ctx.translate(bottomRight.x + 25, (topLeft.y + bottomRight.y) / 2);
-        this.ctx.rotate(Math.PI / 2);
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText(`${height.toFixed(1)}m`, 0, 0);
         this.ctx.restore();

@@ -833,3 +833,4 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
 document.addEventListener('DOMContentLoaded', () => {
     window.edgeViewer = new EdgeViewer();
 });
+

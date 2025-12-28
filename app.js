@@ -57,19 +57,26 @@ class NetworkVisualizer {
     }
 
     init() {
-        this.resizeCanvas();
         this.setupEventListeners();
         window.addEventListener('resize', () => this.resizeCanvas());
 
-        // Try to load default CSV
-        this.loadDefaultCSV();
+        // Initial canvas setup - wait for DOM to be ready
+        setTimeout(() => {
+            this.resizeCanvas();
+            this.loadDefaultCSV();
+        }, 100);
     }
 
     resizeCanvas() {
         const container = this.canvas.parentElement;
-        this.canvas.width = container.clientWidth;
-        this.canvas.height = container.clientHeight;
-        this.drawNetwork();
+        if (container) {
+            this.canvas.width = container.clientWidth;
+            this.canvas.height = container.clientHeight;
+        }
+        // Only draw if we have data
+        if (this.nodes.size > 0) {
+            this.drawNetwork();
+        }
     }
 
     setupEventListeners() {
@@ -172,9 +179,7 @@ class NetworkVisualizer {
             this.intercomNodes.clear();
             this.intercomEdges = [];
             this.updateIntercomInfo();
-            if (this.artnetOptimization) {
-                this.optimizeArtNet();
-            }
+            // Don't re-optimize - preserve manual edge direction changes
             this.drawNetwork();
         });
     }
@@ -231,11 +236,7 @@ class NetworkVisualizer {
                 // Update info display
                 this.updateIntercomInfo();
                 
-                // Re-optimize if artnet optimization exists
-                if (this.artnetOptimization) {
-                    this.optimizeArtNet();
-                }
-                
+                // Don't re-optimize - preserve manual edge direction changes
                 this.drawNetwork();
                 return;
             }
@@ -326,8 +327,30 @@ class NetworkVisualizer {
             outputs.set(oldEnd, (outputs.get(oldEnd) || 0) + 1);
         }
 
+        // Update artnetNodes list based on output counts
+        // A node is a smart node if it has > 0 outputs
+        const artnetNodes = this.artnetOptimization.artnetNodes;
+        
+        // Check if oldStart should be removed (now has 0 outputs)
+        const oldStartOutputs = outputs.get(oldStart) || 0;
+        if (oldStartOutputs <= 0) {
+            const idx = artnetNodes.indexOf(oldStart);
+            if (idx !== -1) {
+                artnetNodes.splice(idx, 1);
+                console.log(`Node ${this.nodeIds.get(oldStart)} is no longer a smart node (0 outputs)`);
+            }
+        }
+
+        // Check if oldEnd should be added (now has outputs)
+        const oldEndOutputs = outputs.get(oldEnd) || 0;
+        if (oldEndOutputs > 0 && !artnetNodes.includes(oldEnd)) {
+            artnetNodes.push(oldEnd);
+            console.log(`Node ${this.nodeIds.get(oldEnd)} is now a smart node (${oldEndOutputs} outputs)`);
+        }
+
         console.log(`Flipped edge ${edge.id}: ${oldStart} → ${oldEnd} becomes ${oldEnd} → ${oldStart}`);
         console.log(`Row power: Y=${oldStartY.toFixed(1)} now ${rowPower.get(oldStartY)}A, Y=${newStartY.toFixed(1)} now ${rowPower.get(newStartY)}A`);
+        console.log(`Smart nodes: ${artnetNodes.length}`);
 
         // Update display
         this.updateArtNetInfo();
@@ -337,10 +360,15 @@ class NetworkVisualizer {
     async loadDefaultCSV() {
         try {
             const response = await fetch('./data/CSV_Dec26_003-s3.csv');
+            if (!response.ok) {
+                console.log('Default CSV not found (HTTP ' + response.status + '), please upload a file');
+                return;
+            }
             const text = await response.text();
+            console.log('Loaded default CSV, parsing...');
             this.parseCSV(text);
         } catch (error) {
-            console.log('Default CSV not found, please upload a file');
+            console.log('Default CSV not found, please upload a file', error);
         }
     }
 
@@ -365,12 +393,16 @@ class NetworkVisualizer {
         const endYIdx = headers.findIndex(h => h === 'end_y');
         const endZIdx = headers.findIndex(h => h === 'end_z');
         const typeIdx = headers.findIndex(h => h === 'type');
+        const flowStartNodeIdx = headers.findIndex(h => h === 'data_flow_start_node_id');
         const flowEndNodeIdx = headers.findIndex(h => h === 'data_flow_end_node_id');
 
-        console.log('CSV column indices:', { idIdx, startXIdx, startYIdx, startZIdx, endXIdx, endYIdx, endZIdx, typeIdx, flowEndNodeIdx });
+        console.log('CSV column indices:', { idIdx, startXIdx, startYIdx, startZIdx, endXIdx, endYIdx, endZIdx, typeIdx, flowStartNodeIdx, flowEndNodeIdx });
         
         // Track intercom node IDs from CSV (if present)
         const intercomNodeIds = new Set();
+        
+        // Track edge flow directions from CSV for restoration
+        const csvEdgeFlows = new Map(); // edgeId -> { flowStartNodeId, flowEndNodeId }
 
         // Clear existing data
         this.nodes.clear();
@@ -421,6 +453,15 @@ class NetworkVisualizer {
                     if (!isNaN(intercomNodeId)) {
                         intercomNodeIds.add(intercomNodeId);
                     }
+                }
+            }
+            
+            // Store edge flow direction from CSV for later restoration
+            if (flowStartNodeIdx >= 0 && flowEndNodeIdx >= 0) {
+                const flowStartId = parseInt(values[flowStartNodeIdx]);
+                const flowEndId = parseInt(values[flowEndNodeIdx]);
+                if (!isNaN(flowStartId) && !isNaN(flowEndId)) {
+                    csvEdgeFlows.set(edgeId, { flowStartId, flowEndId });
                 }
             }
 
@@ -537,18 +578,95 @@ class NetworkVisualizer {
             console.log(`Col ${i+1}: X=${sortedX[i].toFixed(3)} (spacing: ${spacing})`);
         }
 
+        // Restore edge directions from CSV if present
+        if (csvEdgeFlows.size > 0) {
+            this.restoreEdgeDirectionsFromCSV(csvEdgeFlows);
+        }
+
         this.calculateLengthGroups();
         this.updateNetworkInfo();
         this.updateIntercomInfo();
-        this.drawNetwork();
-
-        // Auto-optimize
+        
+        // Ensure canvas is properly sized and draw after a small delay
+        // to allow the DOM to fully render
         setTimeout(() => {
-            this.optimizeArtNet();
-            this.showArtnetNodes = true;
-            document.getElementById('showArtnetNodes').checked = true;
+            const container = this.canvas.parentElement;
+            if (container) {
+                this.canvas.width = container.clientWidth;
+                this.canvas.height = container.clientHeight;
+            }
             this.drawNetwork();
-        }, 100);
+        }, 50);
+    }
+
+    restoreEdgeDirectionsFromCSV(csvEdgeFlows) {
+        // Build reverse lookup: nodeId -> nodeStr
+        const nodeIdToStr = new Map();
+        for (const [nodeStr, nodeId] of this.nodeIds.entries()) {
+            nodeIdToStr.set(nodeId, nodeStr);
+        }
+
+        // Create edge directions map and track smart nodes
+        const edgeDirections = new Map();
+        const artnetOutputCounts = new Map();
+        const rowPower = new Map();
+        const artnetNodesSet = new Set();
+
+        for (const edge of this.edges) {
+            const edgeId = this.edgeIds.get(edge);
+            const flowData = csvEdgeFlows.get(edgeId);
+            
+            if (flowData) {
+                const dataStartStr = nodeIdToStr.get(flowData.flowStartId);
+                const dataEndStr = nodeIdToStr.get(flowData.flowEndId);
+                
+                if (dataStartStr && dataEndStr) {
+                    edgeDirections.set(edge, { start: dataStartStr, end: dataEndStr });
+                    
+                    // Count outputs per node
+                    artnetOutputCounts.set(dataStartStr, (artnetOutputCounts.get(dataStartStr) || 0) + 1);
+                    
+                    // Track row power
+                    const startY = this.parseNode(dataStartStr).y;
+                    rowPower.set(startY, (rowPower.get(startY) || 0) + 1);
+                    
+                    // Mark as smart node
+                    artnetNodesSet.add(dataStartStr);
+                }
+            }
+        }
+
+        // Build artnetNodes array
+        const artnetNodes = Array.from(artnetNodesSet);
+
+        // Calculate end nodes (nodes that only receive data, not send)
+        const endNodesSet = new Set();
+        for (const edge of this.edges) {
+            const dir = edgeDirections.get(edge);
+            if (dir) {
+                // End node is the data destination
+                if (!artnetNodesSet.has(dir.end)) {
+                    endNodesSet.add(dir.end);
+                }
+            }
+        }
+
+        // Create artnetOptimization structure
+        this.artnetOptimization = {
+            artnetNodes: artnetNodes,
+            endNodes: Array.from(endNodesSet),
+            edgeDirections: edgeDirections,
+            artnetOutputCounts: artnetOutputCounts,
+            rowPower: rowPower,
+            rowViolations: [],
+            directionViolations: []
+        };
+
+        console.log(`Restored edge directions from CSV: ${edgeDirections.size} edges, ${artnetNodes.length} smart nodes`);
+        
+        // Show smart nodes checkbox
+        this.showArtnetNodes = true;
+        document.getElementById('showArtnetNodes').checked = true;
     }
 
     parseNode(nodeStr) {
@@ -1837,8 +1955,10 @@ class NetworkVisualizer {
 
         // Add optimization info if available
         if (this.artnetOptimization) {
-            info += `\nArtNet Nodes: ${this.artnetOptimization.artnetNodes.length}\n`;
-            info += `End Nodes: ${this.artnetOptimization.endNodes.length}\n`;
+            const artnetCount = this.artnetOptimization.artnetNodes ? this.artnetOptimization.artnetNodes.length : 0;
+            const endCount = this.artnetOptimization.endNodes ? this.artnetOptimization.endNodes.length : 0;
+            info += `\nArtNet Nodes: ${artnetCount}\n`;
+            info += `End Nodes: ${endCount}\n`;
 
             if (this.artnetOptimization.directionViolations && this.artnetOptimization.directionViolations.length > 0) {
                 info += `⚠️ ${this.artnetOptimization.directionViolations.length} nodes > 4 ports\n`;

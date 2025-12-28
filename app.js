@@ -237,7 +237,23 @@ class NetworkVisualizer {
 
     parseCSV(csvText) {
         const lines = csvText.trim().split('\n');
-        const headers = lines[0].split(',').map(h => h.trim());
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+
+        // Find column indices dynamically
+        const idIdx = headers.findIndex(h => h === 'id');
+        const startXIdx = headers.findIndex(h => h === 'start_x');
+        const startYIdx = headers.findIndex(h => h === 'start_y');
+        const startZIdx = headers.findIndex(h => h === 'start_z');
+        const endXIdx = headers.findIndex(h => h === 'end_x');
+        const endYIdx = headers.findIndex(h => h === 'end_y');
+        const endZIdx = headers.findIndex(h => h === 'end_z');
+        const typeIdx = headers.findIndex(h => h === 'type');
+        const flowEndNodeIdx = headers.findIndex(h => h === 'data_flow_end_node_id');
+
+        console.log('CSV column indices:', { idIdx, startXIdx, startYIdx, startZIdx, endXIdx, endYIdx, endZIdx, typeIdx, flowEndNodeIdx });
+        
+        // Track intercom node IDs from CSV (if present)
+        const intercomNodeIds = new Set();
 
         // Clear existing data
         this.nodes.clear();
@@ -258,14 +274,14 @@ class NetworkVisualizer {
             const values = lines[i].split(',');
             if (values.length < 7) continue;
 
-            const edgeId = parseInt(values[0]);
-            const startX = parseFloat(values[1]);
-            const startY = parseFloat(values[2]);
-            const startZ = parseFloat(values[3]);
-            const endX = parseFloat(values[4]);
-            const endY = parseFloat(values[5]);
-            const endZ = parseFloat(values[6]);
-            const edgeType = values.length > 7 ? values[7].trim() : 'Normal';
+            const edgeId = idIdx >= 0 ? parseInt(values[idIdx]) : i;
+            const startX = parseFloat(values[startXIdx >= 0 ? startXIdx : 1]);
+            const startY = parseFloat(values[startYIdx >= 0 ? startYIdx : 2]);
+            const startZ = parseFloat(values[startZIdx >= 0 ? startZIdx : 3]);
+            const endX = parseFloat(values[endXIdx >= 0 ? endXIdx : 4]);
+            const endY = parseFloat(values[endYIdx >= 0 ? endYIdx : 5]);
+            const endZ = parseFloat(values[endZIdx >= 0 ? endZIdx : 6]);
+            const edgeType = typeIdx >= 0 ? values[typeIdx].trim() : 'Normal';
 
             if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) continue;
 
@@ -279,9 +295,16 @@ class NetworkVisualizer {
             this.edges.push(edge);
             this.edgeIds.set(edge, edgeId);
 
-            // Track intercom edges
+            // Track intercom edges based on Type column
             if (edgeType.toLowerCase() === 'intercom') {
                 this.intercomEdges.push(edge);
+                // If CSV has Data_Flow_End_Node_ID, use that to identify the intercom node ID
+                if (flowEndNodeIdx >= 0) {
+                    const intercomNodeId = parseInt(values[flowEndNodeIdx]);
+                    if (!isNaN(intercomNodeId)) {
+                        intercomNodeIds.add(intercomNodeId);
+                    }
+                }
             }
 
             // Assign node IDs
@@ -303,10 +326,10 @@ class NetworkVisualizer {
             const values = lines[i].split(',');
             if (values.length < 7) continue;
 
-            const edgeType = values.length > 7 ? values[7].trim() : 'Normal';
+            const edgeType = typeIdx >= 0 ? values[typeIdx].trim() : 'Normal';
             if (edgeType.toLowerCase() !== 'intercom') {
-                const x = parseFloat(values[1]);
-                const y = parseFloat(values[2]);
+                const x = parseFloat(values[startXIdx >= 0 ? startXIdx : 1]);
+                const y = parseFloat(values[startYIdx >= 0 ? startYIdx : 2]);
                 if (!isNaN(x) && !isNaN(y)) {
                     allX.add(x);
                     allY.add(y);
@@ -357,21 +380,27 @@ class NetworkVisualizer {
             }
         }
 
-        // Identify pure intercom nodes
-        const allIntercomNodes = new Set();
-        for (const edge of this.intercomEdges) {
-            allIntercomNodes.add(edge.start);
-            allIntercomNodes.add(edge.end);
+        // Identify intercom nodes from CSV
+        // If CSV has Data_Flow_End_Node_ID column, use those IDs directly
+        // Otherwise fall back to using end coordinates of intercom edges
+        this.intercomNodes = new Set();
+        
+        if (intercomNodeIds.size > 0) {
+            // Use node IDs from CSV - find nodes by their assigned ID
+            for (const [nodeStr, nodeId] of this.nodeIds) {
+                if (intercomNodeIds.has(nodeId)) {
+                    this.intercomNodes.add(nodeStr);
+                }
+            }
+            console.log(`Found ${this.intercomEdges.length} intercom edges, ${this.intercomNodes.size} intercom nodes from CSV (using Data_Flow_End_Node_ID)`);
+            console.log('Intercom node IDs:', Array.from(intercomNodeIds).sort((a,b) => a-b).join(', '));
+        } else {
+            // Fallback: use end coordinates of intercom edges
+            for (const edge of this.intercomEdges) {
+                this.intercomNodes.add(edge.end);
+            }
+            console.log(`Found ${this.intercomEdges.length} intercom edges, ${this.intercomNodes.size} intercom nodes from CSV (using end coordinates)`);
         }
-
-        const normalEdges = this.edges.filter(e => !this.intercomEdges.includes(e));
-        const mixedNodes = new Set();
-        for (const edge of normalEdges) {
-            if (allIntercomNodes.has(edge.start)) mixedNodes.add(edge.start);
-            if (allIntercomNodes.has(edge.end)) mixedNodes.add(edge.end);
-        }
-
-        this.intercomNodes = new Set([...allIntercomNodes].filter(n => !mixedNodes.has(n)));
 
         console.log(`Loaded ${this.nodes.size} nodes and ${this.edges.length} edges`);
         console.log(`Grid: ${sortedX.length}×${sortedY.length} = ${this.gridPoints.length} points`);
@@ -514,18 +543,30 @@ class NetworkVisualizer {
 
     drawGrid() {
         // Draw small black circles at each grid point (fixed diameter = 1)
+        // Skip points that are intercom nodes
         this.ctx.fillStyle = '#000000';
 
+        let drawnCount = 0;
         for (const gridPoint of this.gridPoints) {
+            // Check if this grid point matches an intercom node
+            const isIntercomPoint = Array.from(this.intercomNodes).some(nodeStr => {
+                const node = this.parseNode(nodeStr);
+                const dist = Math.sqrt((node.x - gridPoint.x) ** 2 + (node.y - gridPoint.y) ** 2);
+                return dist < 0.5; // Within 0.5m tolerance
+            });
+            
+            if (isIntercomPoint) continue; // Skip intercom grid points
+            
             const pos = this.worldToCanvas(gridPoint.x, gridPoint.y);
             const radius = (1.0 / 2) * this.scale;  // Fixed diameter of 1
 
             this.ctx.beginPath();
             this.ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
             this.ctx.fill();
+            drawnCount++;
         }
 
-        console.log(`Drew ${this.gridPoints.length} grid points`);
+        console.log(`Drew ${drawnCount} grid points (skipped ${this.gridPoints.length - drawnCount} intercom points)`);
     }
 
     drawEdges() {
@@ -1676,7 +1717,7 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'Edge ID,Edge Length,Start X,Start Y,Start Z,End X,End Y,End Z,Data Flow Start Node ID,Data Flow End Node ID,Type\n';
+        let csv = 'ID,start_X,start_Y,start_Z,end_X,end_Y,end_Z,Edge_Length,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID,Type\n';
 
         for (const edge of this.edges) {
             const edgeId = this.edgeIds.get(edge) || '?';
@@ -1711,7 +1752,7 @@ class NetworkVisualizer {
 
             const edgeType = isIntercom ? 'Intercom' : 'Normal';
 
-            csv += `${edgeId},${length.toFixed(2)},${start.x},${start.y},${start.z},${end.x},${end.y},${end.z},${flowStartId},${flowEndId},${edgeType}\n`;
+            csv += `${edgeId},${start.x},${start.y},${start.z},${end.x},${end.y},${end.z},${length.toFixed(2)},${flowStartId},${flowEndId},${edgeType}\n`;
         }
 
         this.downloadCSV('edge_data_export.csv', csv);

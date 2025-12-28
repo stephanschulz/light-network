@@ -16,6 +16,7 @@ class NetworkVisualizer {
         // Intercom data
         this.intercomNodes = new Set();
         this.intercomEdges = [];
+        this.intercomEditMode = false;
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -37,6 +38,8 @@ class NetworkVisualizer {
 
         // Grid data
         this.gridPoints = [];
+        this.gridColumnsX = [];  // Binned X coordinates
+        this.gridRowsY = [];     // Binned Y coordinates
 
         // Transform for coordinate system
         this.scale = 1;
@@ -135,11 +138,88 @@ class NetworkVisualizer {
 
         // Mouse events for tooltips
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+        
+        // Click to toggle intercom nodes
+        this.canvas.addEventListener('click', (e) => this.handleNodeClick(e));
+
+        // Intercom edit mode toggle
+        document.getElementById('intercomEditMode').addEventListener('change', (e) => {
+            this.intercomEditMode = e.target.checked;
+            this.canvas.style.cursor = this.intercomEditMode ? 'crosshair' : 'default';
+        });
+
+        // Clear all intercoms button
+        document.getElementById('clearIntercomsBtn').addEventListener('click', () => {
+            this.intercomNodes.clear();
+            this.intercomEdges = [];
+            this.updateIntercomInfo();
+            if (this.artnetOptimization) {
+                this.optimizeArtNet();
+            }
+            this.draw();
+        });
+    }
+
+    updateIntercomInfo() {
+        const info = document.getElementById('intercomInfo');
+        const count = this.intercomNodes.size;
+        const edgeCount = this.intercomEdges.length;
+        info.textContent = `Intercoms: ${count} nodes, ${edgeCount} edges`;
+    }
+
+    handleNodeClick(e) {
+        // Only handle clicks in intercom edit mode
+        if (!this.intercomEditMode) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Find clicked node
+        for (const nodeStr of this.nodes) {
+            const node = this.parseNode(nodeStr);
+            const pos = this.worldToCanvas(node.x, node.y);
+            const radius = 1.0 * this.scale; // Click radius
+            
+            const dist = Math.sqrt((x - pos.x) ** 2 + (y - pos.y) ** 2);
+            if (dist <= radius * 2) { // Generous click area
+                // Toggle intercom status
+                if (this.intercomNodes.has(nodeStr)) {
+                    this.intercomNodes.delete(nodeStr);
+                    // Remove from intercom edges
+                    this.intercomEdges = this.intercomEdges.filter(edge => 
+                        edge.start !== nodeStr && edge.end !== nodeStr
+                    );
+                    console.log(`Removed intercom: ${nodeStr}`);
+                } else {
+                    this.intercomNodes.add(nodeStr);
+                    // Add edges that connect to this node as intercom edges
+                    for (const edge of this.edges) {
+                        if ((edge.start === nodeStr || edge.end === nodeStr) && 
+                            !this.intercomEdges.includes(edge)) {
+                            this.intercomEdges.push(edge);
+                        }
+                    }
+                    console.log(`Added intercom: ${nodeStr}`);
+                }
+                
+                // Update info display
+                this.updateIntercomInfo();
+                
+                // Re-optimize if artnet optimization exists
+                if (this.artnetOptimization) {
+                    this.optimizeArtNet();
+                }
+                
+                this.draw();
+                return;
+            }
+        }
     }
 
     async loadDefaultCSV() {
         try {
-            const response = await fetch('./data/Oct10_003_stephan.csv');
+            const response = await fetch('./data/Dec-28_001_stephan.csv');
             const text = await response.text();
             this.parseCSV(text);
         } catch (error) {
@@ -168,6 +248,8 @@ class NetworkVisualizer {
         this.nodeIds.clear();
         this.nextNodeId = 1;
         this.gridPoints = [];
+        this.gridColumnsX = [];
+        this.gridRowsY = [];
 
         // Parse edges
         for (let i = 1; i < lines.length; i++) {
@@ -232,9 +314,42 @@ class NetworkVisualizer {
             }
         }
 
-        // Create grid from all combinations
-        const sortedX = Array.from(allX).sort((a, b) => a - b);
-        const sortedY = Array.from(allY).sort((a, b) => a - b);
+        // Bin coordinates with 0.25m tolerance
+        const gridTolerance = 0.25;
+        
+        const binCoordinates = (coords) => {
+            const sorted = Array.from(coords).sort((a, b) => a - b);
+            const binned = [];
+            
+            for (const coord of sorted) {
+                // Check if this coordinate is close to an existing bin
+                let foundBin = false;
+                for (let i = 0; i < binned.length; i++) {
+                    if (Math.abs(binned[i].center - coord) < gridTolerance) {
+                        // Add to existing bin and recalculate center
+                        binned[i].values.push(coord);
+                        binned[i].center = binned[i].values.reduce((a, b) => a + b, 0) / binned[i].values.length;
+                        foundBin = true;
+                        break;
+                    }
+                }
+                if (!foundBin) {
+                    binned.push({ center: coord, values: [coord] });
+                }
+            }
+            
+            return binned.map(b => b.center).sort((a, b) => a - b);
+        };
+        
+        // Create grid from binned coordinates
+        const sortedX = binCoordinates(allX);
+        const sortedY = binCoordinates(allY);
+        
+        // Store binned coordinates for labels
+        this.gridColumnsX = sortedX;
+        this.gridRowsY = sortedY;
+        
+        console.log(`Grid binning: ${allX.size} unique X → ${sortedX.length} columns, ${allY.size} unique Y → ${sortedY.length} rows (tolerance: ${gridTolerance}m)`);
 
         for (const y of sortedY) {
             for (const x of sortedX) {
@@ -260,9 +375,25 @@ class NetworkVisualizer {
 
         console.log(`Loaded ${this.nodes.size} nodes and ${this.edges.length} edges`);
         console.log(`Grid: ${sortedX.length}×${sortedY.length} = ${this.gridPoints.length} points`);
+        
+        // Debug: Show all unique Y coordinates (rows) and their spacing
+        console.log('=== GRID ROW ANALYSIS ===');
+        for (let i = 0; i < sortedY.length; i++) {
+            const spacing = i > 0 ? (sortedY[i] - sortedY[i-1]).toFixed(3) : '-';
+            const row = String.fromCharCode(65 + i); // A, B, C...
+            console.log(`Row ${row}: Y=${sortedY[i].toFixed(3)} (spacing: ${spacing})`);
+        }
+        
+        // Debug: Show all unique X coordinates (columns) and their spacing  
+        console.log('=== GRID COLUMN ANALYSIS ===');
+        for (let i = 0; i < sortedX.length; i++) {
+            const spacing = i > 0 ? (sortedX[i] - sortedX[i-1]).toFixed(3) : '-';
+            console.log(`Col ${i+1}: X=${sortedX[i].toFixed(3)} (spacing: ${spacing})`);
+        }
 
         this.calculateLengthGroups();
         this.updateNetworkInfo();
+        this.updateIntercomInfo();
         this.drawNetwork();
 
         // Auto-optimize
@@ -437,23 +568,20 @@ class NetworkVisualizer {
             const diameter = isArtnet ? this.nodeDiameter : 1.0;
             const radius = (diameter / 2) * this.scale;
 
-            // Draw main circle
+            // Draw main circle - blue for intercom, green for artnet, red for regular
             this.ctx.beginPath();
             this.ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-            this.ctx.fillStyle = isArtnet ? '#00ff00' : '#ff0000';
-            this.ctx.fill();
-            this.ctx.strokeStyle = '#000000';
-            this.ctx.lineWidth = isArtnet ? 2 : 1;
-            this.ctx.stroke();
-
-            // Draw intercom marker (orange ring)
             if (isIntercom) {
-                this.ctx.beginPath();
-                this.ctx.arc(pos.x, pos.y, radius * 1.5, 0, Math.PI * 2);
-                this.ctx.strokeStyle = '#ff8c00';
-                this.ctx.lineWidth = 3;
-                this.ctx.stroke();
+                this.ctx.fillStyle = '#0066ff'; // Blue for intercom
+            } else if (isArtnet) {
+                this.ctx.fillStyle = '#00ff00'; // Green for artnet
+            } else {
+                this.ctx.fillStyle = '#ff0000'; // Red for regular
             }
+            this.ctx.fill();
+            this.ctx.strokeStyle = isIntercom ? '#003399' : '#000000';
+            this.ctx.lineWidth = isIntercom ? 2 : (isArtnet ? 2 : 1);
+            this.ctx.stroke();
 
             // Draw rectangle for ArtNet nodes
             if (isArtnet) {
@@ -692,20 +820,14 @@ class NetworkVisualizer {
     }
 
     drawGridLabels() {
-        const gridNodes = Array.from(this.nodes)
-            .filter(n => !this.intercomNodes.has(n))
-            .map(n => this.parseNode(n));
-
-        if (gridNodes.length === 0) return;
-
-        const yCoords = [...new Set(gridNodes.map(n => n.y))].sort((a, b) => a - b);
-        const xCoords = [...new Set(gridNodes.map(n => n.x))].sort((a, b) => a - b);
+        // Use binned grid coordinates for labels
+        if (this.gridRowsY.length === 0 || this.gridColumnsX.length === 0) return;
 
         this.ctx.fillStyle = '#000000';
         this.ctx.font = `${this.fontSize * 0.7}px Arial`;
 
-        // Row labels (letters)
-        yCoords.forEach((y, i) => {
+        // Row labels (letters) - use binned Y coordinates
+        this.gridRowsY.forEach((y, i) => {
             const letter = i < 26 ? String.fromCharCode(65 + i) : 'AA';
             const pos = this.worldToCanvas(this.worldMinX, y);
             this.ctx.textAlign = 'right';
@@ -713,8 +835,8 @@ class NetworkVisualizer {
             this.ctx.fillText(letter, pos.x - 5, pos.y);
         });
 
-        // Column labels (numbers)
-        xCoords.forEach((x, i) => {
+        // Column labels (numbers) - use binned X coordinates
+        this.gridColumnsX.forEach((x, i) => {
             const pos = this.worldToCanvas(x, this.worldMinY);
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'bottom';

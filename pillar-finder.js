@@ -787,44 +787,64 @@ class PillarFinder {
             return;
         }
 
-        // Helper function to find which pillar a coordinate belongs to
-        const findPillarForPoint = (x, y) => {
+        // Helper function to find which pillar (centroid) a coordinate belongs to
+        const findCentroidForPoint = (x, y) => {
             for (const centroid of this.centroids) {
                 // Check if this point is within the cluster radius of this centroid
                 const dist = Math.sqrt((x - centroid.x) ** 2 + (y - centroid.y) ** 2);
                 if (dist <= this.clusterRadius) {
-                    return `P${centroid.id}`;
+                    return centroid;
                 }
             }
             // If no match within cluster radius, find the closest centroid
-            let closestPillar = '';
+            let closestCentroid = null;
             let closestDist = Infinity;
             for (const centroid of this.centroids) {
                 const dist = Math.sqrt((x - centroid.x) ** 2 + (y - centroid.y) ** 2);
                 if (dist < closestDist) {
                     closestDist = dist;
-                    closestPillar = `P${centroid.id}`;
+                    closestCentroid = centroid;
                 }
             }
-            return closestPillar;
+            return closestCentroid;
         };
 
-        let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar,Length\n';
+        let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar,Length,';
+        csv += 'Pillar_Start_X,Pillar_Start_Y,Pillar_Start_Z,Pillar_End_X,Pillar_End_Y,Pillar_End_Z,Pillar_Length\n';
         
         for (const edge of this.edges) {
             // Find which pillar the start and end points belong to
-            const startPillar = findPillarForPoint(edge.startX, edge.startY);
-            const endPillar = findPillarForPoint(edge.endX, edge.endY);
+            const startCentroid = findCentroidForPoint(edge.startX, edge.startY);
+            const endCentroid = findCentroidForPoint(edge.endX, edge.endY);
             
-            // Calculate 3D length of edge
+            const startPillar = startCentroid ? `P${startCentroid.id}` : '';
+            const endPillar = endCentroid ? `P${endCentroid.id}` : '';
+            
+            // Calculate 3D length of original edge
             const dx = edge.endX - edge.startX;
             const dy = edge.endY - edge.startY;
             const dz = edge.endZ - edge.startZ;
             const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
             
+            // Get pillar center coordinates (use original Z from edge points)
+            const pillarStartX = startCentroid ? startCentroid.x : edge.startX;
+            const pillarStartY = startCentroid ? startCentroid.y : edge.startY;
+            const pillarStartZ = edge.startZ; // Keep original Z
+            const pillarEndX = endCentroid ? endCentroid.x : edge.endX;
+            const pillarEndY = endCentroid ? endCentroid.y : edge.endY;
+            const pillarEndZ = edge.endZ; // Keep original Z
+            
+            // Calculate length using pillar centers
+            const pdx = pillarEndX - pillarStartX;
+            const pdy = pillarEndY - pillarStartY;
+            const pdz = pillarEndZ - pillarStartZ;
+            const pillarLength = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz);
+            
             csv += `${edge.id},${edge.startX.toFixed(4)},${edge.startY.toFixed(4)},${edge.startZ.toFixed(4)},`;
             csv += `${edge.endX.toFixed(4)},${edge.endY.toFixed(4)},${edge.endZ.toFixed(4)},`;
-            csv += `${edge.type},${startPillar},${endPillar},${length.toFixed(4)}\n`;
+            csv += `${edge.type},${startPillar},${endPillar},${length.toFixed(4)},`;
+            csv += `${pillarStartX.toFixed(4)},${pillarStartY.toFixed(4)},${pillarStartZ.toFixed(4)},`;
+            csv += `${pillarEndX.toFixed(4)},${pillarEndY.toFixed(4)},${pillarEndZ.toFixed(4)},${pillarLength.toFixed(4)}\n`;
         }
 
         const blob = new Blob([csv], { type: 'text/csv' });

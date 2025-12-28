@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            height: 100vh;
+        }
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background-color: #ffffff;
+        }
+        #edgeCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .control-panel {
+            width: 320px;
+            background-color: #ffffff;
+            border-left: 1px solid #ddd;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .control-panel h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 4px;
+        }
+        .control-panel h3 {
+            font-size: 12px;
+            margin-bottom: 6px;
+            color: #555;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .control-section {
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        label {
+            display: block;
+            margin-bottom: 2px;
+            font-size: 12px;
+            color: #555;
+            font-weight: 500;
+        }
+        label span {
+            float: right;
+            color: #007bff;
+            font-weight: 600;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .btn {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 6px;
+            border: 1px solid #ddd;
+            background-color: #f8f9fa;
+            color: #333;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #e9ecef;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .info-box {
+            font-size: 11px;
+            color: #555;
+            margin-top: 6px;
+            padding: 8px;
+            background-color: #e7f3ff;
+            border: 1px solid #b3d7ff;
+            border-radius: 4px;
+            white-space: pre-line;
+            line-height: 1.4;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            background-color: #ffe7e7;
+            border-color: #ffb3b3;
+            color: #cc0000;
+        }
+        .success {
+            background-color: #e7ffe7;
+            border-color: #b3ffb3;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <canvas id="edgeCanvas"></canvas>
+    </div>
+
+    <div class="control-panel">
+        <h2>Edge Viewer</h2>
+
+        <div class="control-section">
+            <h3>Data</h3>
+            <button id="loadDataBtn" class="btn">Load CSV Data</button>
+            <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+        </div>
+
+        <div class="control-section">
+            <h3>Navigation</h3>
+            <p style="font-size: 10px; color: #666; margin-bottom: 8px;">
+                🖱️ <strong>Scroll</strong> to zoom in/out<br>
+                🖱️ <strong>Drag</strong> to pan<br>
+                🖱️ <strong>Double-click</strong> to reset view
+            </p>
+            <button id="resetViewBtn" class="btn">Reset View</button>
+            <div style="font-size: 11px; margin-top: 4px;">
+                Zoom: <span id="zoomLevelDisplay">100%</span>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <h3>Display</h3>
+            <label>
+                <input type="checkbox" id="showEdgeIds" checked>
+                Show Edge IDs
+            </label>
+            <label>
+                <input type="checkbox" id="showLengths">
+                Show Lengths
+            </label>
+            <label>
+                <input type="checkbox" id="showNodes" checked>
+                Show Nodes
+            </label>
+            <label>Line Width: <span id="lineWidthValue">2</span></label>
+            <input type="range" id="lineWidth" min="1" max="10" step="1" value="2">
+            <label>Node Size: <span id="nodeSizeValue">4</span></label>
+            <input type="range" id="nodeSize" min="1" max="15" step="1" value="4">
+        </div>
+
+        <div class="control-section">
+            <h3>Edge Extension Analysis</h3>
+            <label>Extension Amount: <span id="extensionValue">0.00</span> m</label>
+            <input type="range" id="extensionAmount" min="0" max="1.0" step="0.05" value="0">
+            <p style="font-size: 10px; color: #888; margin-top: 4px;">
+                Extend edges to find if endpoints converge to common pillar centers.
+            </p>
+            <label>Cluster Radius: <span id="clusterRadiusValue">0.15</span> m</label>
+            <input type="range" id="clusterRadius" min="0.05" max="0.5" step="0.01" value="0.15">
+            
+            <div style="margin-top: 8px; font-size: 10px;">
+                <strong>Legend:</strong><br>
+                <span style="color: #aaa;">━━</span> Original edge<br>
+                <span style="color: #0066ff;">━━</span> Start extension<br>
+                <span style="color: #ff3300;">━━</span> End extension<br>
+                <span style="display: inline-block; width: 10px; height: 10px; background: #00cc00; border-radius: 50%;"></span> Edges converge (count shown)
+            </div>
+        </div>
+
+        <div class="control-section">
+            <h3>Length Verification</h3>
+            <div id="lengthInfo" class="info-box">Load CSV to verify lengths</div>
+        </div>
+
+        <div class="control-section">
+            <h3>Statistics</h3>
+            <div id="statsInfo" class="info-box">No data loaded</div>
+        </div>
+    </div>
+
+    <script src="edge-viewer.js"></script>
+</body>
+</html>

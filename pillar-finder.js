@@ -658,39 +658,34 @@ class PillarFinder {
             return;
         }
 
-        // Build a map of which pillar each point belongs to
-        const pointToPillar = new Map();
-        for (const centroid of this.centroids) {
-            const cluster = this.clusters.find(c => c.id === centroid.id);
-            if (cluster) {
-                for (const point of cluster.points) {
-                    const key = `${point.x},${point.y},${point.z},${point.type}`;
-                    pointToPillar.set(key, `P${centroid.id}`);
+        // Helper function to find which pillar a coordinate belongs to
+        const findPillarForPoint = (x, y) => {
+            for (const centroid of this.centroids) {
+                // Check if this point is within the cluster radius of this centroid
+                const dist = Math.sqrt((x - centroid.x) ** 2 + (y - centroid.y) ** 2);
+                if (dist <= this.clusterRadius) {
+                    return `P${centroid.id}`;
                 }
             }
-        }
+            // If no match within cluster radius, find the closest centroid
+            let closestPillar = '';
+            let closestDist = Infinity;
+            for (const centroid of this.centroids) {
+                const dist = Math.sqrt((x - centroid.x) ** 2 + (y - centroid.y) ** 2);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestPillar = `P${centroid.id}`;
+                }
+            }
+            return closestPillar;
+        };
 
         let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar\n';
         
         for (const edge of this.edges) {
-            // Find which pillar the start point belongs to
-            let startPillar = '';
-            let endPillar = '';
-            
-            for (const centroid of this.centroids) {
-                const cluster = this.clusters.find(c => c.id === centroid.id);
-                if (cluster) {
-                    for (const point of cluster.points) {
-                        if (point.edgeId === edge.id) {
-                            if (point.type === 'start') {
-                                startPillar = `P${centroid.id}`;
-                            } else if (point.type === 'end') {
-                                endPillar = `P${centroid.id}`;
-                            }
-                        }
-                    }
-                }
-            }
+            // Find which pillar the start and end points belong to
+            const startPillar = findPillarForPoint(edge.startX, edge.startY);
+            const endPillar = findPillarForPoint(edge.endX, edge.endY);
             
             csv += `${edge.id},${edge.startX.toFixed(4)},${edge.startY.toFixed(4)},${edge.startZ.toFixed(4)},`;
             csv += `${edge.endX.toFixed(4)},${edge.endY.toFixed(4)},${edge.endZ.toFixed(4)},`;
@@ -767,21 +762,13 @@ class PillarFinder {
                 continue;
             }
             
-            // Find the cluster for this centroid
-            const cluster = this.clusters.find(c => c.id === pillarId);
-            
-            if (!cluster) {
-                results[label] = { error: 'No cluster data', edgeIds: [] };
-                continue;
-            }
-            
-            // Get unique edge IDs from the points in this cluster
-            const edgeIds = [...new Set(cluster.points.map(p => p.edgeId))].sort((a, b) => a - b);
+            // Use the edgeIds stored directly on the centroid (correct after sorting)
+            const edgeIds = centroid.edgeIds || [];
             
             results[label] = {
                 pillarId: pillarId,
                 centroid: { x: centroid.x.toFixed(2), y: centroid.y.toFixed(2) },
-                pointCount: cluster.points.length,
+                pointCount: centroid.pointCount,
                 edgeIds: edgeIds,
                 edgeCount: edgeIds.length
             };

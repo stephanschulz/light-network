@@ -8,6 +8,7 @@ class PillarFinder {
 
         // Data
         this.rawPoints = [];  // All XY points from CSV
+        this.edges = [];      // Edge lines from CSV
         this.clusters = [];   // Grouped points
         this.centroids = [];  // Calculated pillar centers
         this.gridPoints = []; // Full grid including extrapolated points
@@ -20,6 +21,8 @@ class PillarFinder {
         this.showCentroids = true;
         this.showClusterCircles = true;
         this.showLabels = true;
+        this.showEdgeIds = false;
+        this.showEdges = true;
         this.showExtrapolatedGrid = true;
 
         // Transform
@@ -99,9 +102,27 @@ class PillarFinder {
             this.draw();
         });
 
+        document.getElementById('showEdgeIds').addEventListener('change', (e) => {
+            this.showEdgeIds = e.target.checked;
+            this.draw();
+        });
+
         document.getElementById('showExtrapolatedGrid').addEventListener('change', (e) => {
             this.showExtrapolatedGrid = e.target.checked;
             this.draw();
+        });
+
+        document.getElementById('showEdges').addEventListener('change', (e) => {
+            this.showEdges = e.target.checked;
+            this.draw();
+        });
+
+        document.getElementById('exportEdgesBtn').addEventListener('click', () => {
+            this.exportEdgesWithPillars();
+        });
+
+        document.getElementById('exportPillarsBtn').addEventListener('click', () => {
+            this.exportPillarsWithEdges();
         });
 
         document.getElementById('gridTolerance').addEventListener('input', (e) => {
@@ -137,6 +158,7 @@ class PillarFinder {
     parseCSV(csvText) {
         const lines = csvText.trim().split('\n');
         this.rawPoints = [];
+        this.edges = [];
 
         for (let i = 1; i < lines.length; i++) {
             if (!lines[i].trim()) continue;
@@ -144,22 +166,36 @@ class PillarFinder {
             const values = lines[i].split(',');
             if (values.length < 7) continue;
 
+            const edgeId = parseInt(values[0]);
             const startX = parseFloat(values[1]);
             const startY = parseFloat(values[2]);
             const startZ = parseFloat(values[3]);
             const endX = parseFloat(values[4]);
             const endY = parseFloat(values[5]);
             const endZ = parseFloat(values[6]);
+            const edgeType = values.length > 7 ? values[7].trim() : 'Normal';
 
             // Skip empty rows
             if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) continue;
 
+            // Store edge
+            this.edges.push({
+                id: edgeId,
+                startX: startX,
+                startY: startY,
+                startZ: startZ,
+                endX: endX,
+                endY: endY,
+                endZ: endZ,
+                type: edgeType
+            });
+
             // Add both start and end points (using XY only for clustering)
-            this.rawPoints.push({ x: startX, y: startY, z: startZ, type: 'start', edgeId: parseInt(values[0]) });
-            this.rawPoints.push({ x: endX, y: endY, z: endZ, type: 'end', edgeId: parseInt(values[0]) });
+            this.rawPoints.push({ x: startX, y: startY, z: startZ, type: 'start', edgeId: edgeId });
+            this.rawPoints.push({ x: endX, y: endY, z: endZ, type: 'end', edgeId: edgeId });
         }
 
-        console.log(`Loaded ${this.rawPoints.length} points from CSV`);
+        console.log(`Loaded ${this.rawPoints.length} points and ${this.edges.length} edges from CSV`);
         this.calculateBounds();
         this.draw();
     }
@@ -277,6 +313,9 @@ class PillarFinder {
                 maxZ: maxZ
             });
 
+            // Get unique edge IDs connected to this pillar
+            const edgeIds = [...new Set(points.map(p => p.edgeId))].sort((a, b) => a - b);
+
             this.centroids.push({
                 id: pillarId,
                 x: centroidX,
@@ -284,7 +323,8 @@ class PillarFinder {
                 pointCount: points.length,
                 actualRadius: maxDist,
                 minZ: minZ,
-                maxZ: maxZ
+                maxZ: maxZ,
+                edgeIds: edgeIds
             });
 
             pillarId++;
@@ -426,6 +466,11 @@ class PillarFinder {
         // Draw grid
         this.drawGrid();
 
+        // Draw edges
+        if (this.showEdges) {
+            this.drawEdges();
+        }
+
         // Draw cluster circles
         if (this.showClusterCircles && this.clusters.length > 0) {
             for (const cluster of this.clusters) {
@@ -456,39 +501,17 @@ class PillarFinder {
             }
         }
 
-        // Draw extrapolated grid points (before centroids so they appear behind)
+        // Draw extrapolated grid points (simple black circles, no labels)
         if (this.showExtrapolatedGrid && this.gridPoints.length > 0) {
             for (const gridPoint of this.gridPoints) {
                 if (!gridPoint.isActual) {
                     const pos = this.worldToCanvas(gridPoint.x, gridPoint.y);
 
-                    // Draw extrapolated point marker (hollow orange circle)
+                    // Draw simple small black circle
                     this.ctx.beginPath();
-                    this.ctx.arc(pos.x, pos.y, this.pointSize + 2, 0, Math.PI * 2);
-                    this.ctx.strokeStyle = '#ff8800';
-                    this.ctx.lineWidth = 2;
-                    this.ctx.setLineDash([3, 3]);
-                    this.ctx.stroke();
-                    this.ctx.setLineDash([]);
-
-                    // Draw X marker inside
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(pos.x - 4, pos.y - 4);
-                    this.ctx.lineTo(pos.x + 4, pos.y + 4);
-                    this.ctx.moveTo(pos.x + 4, pos.y - 4);
-                    this.ctx.lineTo(pos.x - 4, pos.y + 4);
-                    this.ctx.strokeStyle = '#ff8800';
-                    this.ctx.lineWidth = 1.5;
-                    this.ctx.stroke();
-
-                    // Draw label for extrapolated points
-                    if (this.showLabels) {
-                        this.ctx.fillStyle = '#ff8800';
-                        this.ctx.font = '10px Arial';
-                        this.ctx.textAlign = 'left';
-                        this.ctx.textBaseline = 'bottom';
-                        this.ctx.fillText(`E${gridPoint.id}`, pos.x + 8, pos.y - 3);
-                    }
+                    this.ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+                    this.ctx.fillStyle = '#000000';
+                    this.ctx.fill();
                 }
             }
         }
@@ -529,6 +552,15 @@ class PillarFinder {
                     this.ctx.fillStyle = '#666';
                     this.ctx.textBaseline = 'top';
                     this.ctx.fillText(`(${centroid.x.toFixed(1)}, ${centroid.y.toFixed(1)})`, pos.x + 10, pos.y + 2);
+                    
+                    // Draw edge IDs if enabled
+                    if (this.showEdgeIds && centroid.edgeIds && centroid.edgeIds.length > 0) {
+                        this.ctx.font = '9px Arial';
+                        this.ctx.fillStyle = '#0066cc';
+                        this.ctx.textBaseline = 'top';
+                        const edgeText = `Edges: ${centroid.edgeIds.join(', ')}`;
+                        this.ctx.fillText(edgeText, pos.x + 10, pos.y + 14);
+                    }
                 }
             }
         }
@@ -571,6 +603,21 @@ class PillarFinder {
         }
     }
 
+    drawEdges() {
+        this.ctx.strokeStyle = '#888888';
+        this.ctx.lineWidth = 1;
+
+        for (const edge of this.edges) {
+            const startPos = this.worldToCanvas(edge.startX, edge.startY);
+            const endPos = this.worldToCanvas(edge.endX, edge.endY);
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(startPos.x, startPos.y);
+            this.ctx.lineTo(endPos.x, endPos.y);
+            this.ctx.stroke();
+        }
+    }
+
     exportCentroids() {
         if (this.gridPoints.length === 0) {
             alert('No grid points to export. Run "Find Pillar Centers" first.');
@@ -578,10 +625,16 @@ class PillarFinder {
         }
 
         // Export all grid points (both actual and extrapolated)
-        let csv = 'Grid_ID,Center_X,Center_Y,Type,Point_Count\n';
+        // Use same labels as shown in visualization:
+        // - Actual centroids: P{centroid.id}
+        // - Extrapolated: E{gridPoint.id}
+        let csv = 'Label,Grid_ID,Center_X,Center_Y,Type,Point_Count\n';
+        
         for (const g of this.gridPoints) {
             const type = g.isActual ? 'Actual' : 'Extrapolated';
-            csv += `${g.id},${g.x.toFixed(4)},${g.y.toFixed(4)},${type},${g.pointCount}\n`;
+            // Use the matched centroid's ID for P label, gridPoint.id for E label
+            const label = g.isActual ? `P${g.matchedCentroid.id}` : `E${g.id}`;
+            csv += `${label},${g.id},${g.x.toFixed(4)},${g.y.toFixed(4)},${type},${g.pointCount}\n`;
         }
 
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -597,9 +650,176 @@ class PillarFinder {
         console.log('Exported pillar grid:');
         console.table(this.gridPoints);
     }
+
+    // Export edges with their associated pillars
+    exportEdgesWithPillars() {
+        if (this.edges.length === 0) {
+            alert('No edges to export. Load CSV data first.');
+            return;
+        }
+
+        // Build a map of which pillar each point belongs to
+        const pointToPillar = new Map();
+        for (const centroid of this.centroids) {
+            const cluster = this.clusters.find(c => c.id === centroid.id);
+            if (cluster) {
+                for (const point of cluster.points) {
+                    const key = `${point.x},${point.y},${point.z},${point.type}`;
+                    pointToPillar.set(key, `P${centroid.id}`);
+                }
+            }
+        }
+
+        let csv = 'Edge_ID,Start_X,Start_Y,Start_Z,End_X,End_Y,End_Z,Type,Start_Pillar,End_Pillar\n';
+        
+        for (const edge of this.edges) {
+            // Find which pillar the start point belongs to
+            let startPillar = '';
+            let endPillar = '';
+            
+            for (const centroid of this.centroids) {
+                const cluster = this.clusters.find(c => c.id === centroid.id);
+                if (cluster) {
+                    for (const point of cluster.points) {
+                        if (point.edgeId === edge.id) {
+                            if (point.type === 'start') {
+                                startPillar = `P${centroid.id}`;
+                            } else if (point.type === 'end') {
+                                endPillar = `P${centroid.id}`;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            csv += `${edge.id},${edge.startX.toFixed(4)},${edge.startY.toFixed(4)},${edge.startZ.toFixed(4)},`;
+            csv += `${edge.endX.toFixed(4)},${edge.endY.toFixed(4)},${edge.endZ.toFixed(4)},`;
+            csv += `${edge.type},${startPillar},${endPillar}\n`;
+        }
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'edges_with_pillars.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        console.log('Exported edges with pillars');
+    }
+
+    // Export pillars with their connected edge IDs
+    exportPillarsWithEdges() {
+        if (this.centroids.length === 0) {
+            alert('No pillars to export. Run "Find Pillar Centers" first.');
+            return;
+        }
+
+        let csv = 'Pillar_Label,Center_X,Center_Y,Point_Count,Edge_Count,Edge_IDs\n';
+        
+        for (const centroid of this.centroids) {
+            const edgeIds = centroid.edgeIds ? centroid.edgeIds.join(';') : '';
+            const edgeCount = centroid.edgeIds ? centroid.edgeIds.length : 0;
+            
+            csv += `P${centroid.id},${centroid.x.toFixed(4)},${centroid.y.toFixed(4)},`;
+            csv += `${centroid.pointCount},${edgeCount},"${edgeIds}"\n`;
+        }
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pillars_with_edges.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        console.log('Exported pillars with edges:');
+        console.table(this.centroids.map(c => ({
+            label: `P${c.id}`,
+            x: c.x.toFixed(2),
+            y: c.y.toFixed(2),
+            edgeIds: c.edgeIds ? c.edgeIds.join(', ') : ''
+        })));
+    }
+
+    // Get edge IDs for specific pillars
+    getEdgesForPillars(pillarLabels) {
+        const results = {};
+        
+        for (const label of pillarLabels) {
+            // Parse the label (e.g., "P1", "P42")
+            const match = label.match(/^P(\d+)$/i);
+            if (!match) {
+                console.warn(`Invalid pillar label: ${label}. Use format P1, P2, etc.`);
+                continue;
+            }
+            
+            const pillarId = parseInt(match[1]);
+            const centroid = this.centroids.find(c => c.id === pillarId);
+            
+            if (!centroid) {
+                console.warn(`Pillar ${label} not found`);
+                results[label] = { error: 'Not found', edgeIds: [] };
+                continue;
+            }
+            
+            // Find the cluster for this centroid
+            const cluster = this.clusters.find(c => c.id === pillarId);
+            
+            if (!cluster) {
+                results[label] = { error: 'No cluster data', edgeIds: [] };
+                continue;
+            }
+            
+            // Get unique edge IDs from the points in this cluster
+            const edgeIds = [...new Set(cluster.points.map(p => p.edgeId))].sort((a, b) => a - b);
+            
+            results[label] = {
+                pillarId: pillarId,
+                centroid: { x: centroid.x.toFixed(2), y: centroid.y.toFixed(2) },
+                pointCount: cluster.points.length,
+                edgeIds: edgeIds,
+                edgeCount: edgeIds.length
+            };
+        }
+        
+        return results;
+    }
+
+    // Print edges for specific pillars to console
+    printEdgesForPillars(pillarLabels) {
+        const results = this.getEdgesForPillars(pillarLabels);
+        
+        console.log('='.repeat(60));
+        console.log('EDGES CONNECTED TO PILLARS');
+        console.log('='.repeat(60));
+        
+        for (const [label, data] of Object.entries(results)) {
+            if (data.error) {
+                console.log(`\n${label}: ${data.error}`);
+            } else {
+                console.log(`\n${label} at (${data.centroid.x}, ${data.centroid.y})`);
+                console.log(`  Points in cluster: ${data.pointCount}`);
+                console.log(`  Edge IDs (${data.edgeCount}): ${data.edgeIds.join(', ')}`);
+            }
+        }
+        
+        console.log('\n' + '='.repeat(60));
+        
+        return results;
+    }
 }
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
     window.pillarFinder = new PillarFinder();
 });
+
+// Convenience function to query edges
+window.getEdgesForPillars = function(pillarLabels) {
+    return window.pillarFinder.printEdgesForPillars(pillarLabels);
+};

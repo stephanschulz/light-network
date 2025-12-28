@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Point Offset Finder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            font-size: 1.8rem;
+            color: #00ffa3;
+            margin-bottom: 20px;
+            font-weight: 400;
+            letter-spacing: 2px;
+        }
+        
+        .stats-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #1a1a24 0%, #12121a 100%);
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            padding: 16px 20px;
+        }
+        
+        .stat-card h3 {
+            font-size: 0.75rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+        
+        .stat-card .value.stephan { color: #ff6b6b; }
+        .stat-card .value.intercom { color: #4ecdc4; }
+        .stat-card .value.offset { color: #ffd93d; }
+        .stat-card .value.corrected { color: #a855f7; }
+        
+        .stat-card .detail {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .canvas-container {
+            background: linear-gradient(180deg, #0d0d14 0%, #08080c 100%);
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            background: #050508;
+            border-radius: 8px;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 32px;
+            justify-content: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+        }
+        
+        .legend-dot.stephan { background: #ff6b6b; }
+        .legend-dot.intercom { background: #4ecdc4; }
+        .legend-dot.corrected { background: #a855f7; }
+        
+        .controls {
+            background: linear-gradient(135deg, #1a1a24 0%, #12121a 100%);
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+        
+        .controls label {
+            display: block;
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        
+        .controls input[type="range"] {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .controls .range-value {
+            text-align: center;
+            font-size: 1.2rem;
+            color: #ffd93d;
+        }
+        
+        .toggle-btn {
+            background: #2a2a3a;
+            border: 1px solid #3a3a4a;
+            color: #e0e0e0;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            margin-right: 8px;
+            margin-top: 12px;
+        }
+        
+        .toggle-btn:hover {
+            background: #3a3a4a;
+        }
+        
+        .toggle-btn.active {
+            background: #00ffa3;
+            color: #0a0a0f;
+            border-color: #00ffa3;
+        }
+        
+        .data-table {
+            background: linear-gradient(135deg, #1a1a24 0%, #12121a 100%);
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+        }
+        
+        .data-table h3 {
+            color: #00ffa3;
+            margin-bottom: 12px;
+            font-weight: 400;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #2a2a3a;
+        }
+        
+        th {
+            color: #888;
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+        }
+        
+        td.stephan { color: #ff6b6b; }
+        td.intercom { color: #4ecdc4; }
+        td.corrected { color: #a855f7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>POINT OFFSET FINDER</h1>
+        
+        <div class="stats-panel" id="statsPanel">
+            <!-- Stats will be populated by JS -->
+        </div>
+        
+        <div class="controls">
+            <label>Manual Y Offset Adjustment</label>
+            <input type="range" id="offsetSlider" min="-150" max="150" step="0.1" value="0">
+            <div class="range-value" id="sliderValue">0.000</div>
+            <button class="toggle-btn active" id="showStephan">Stephan Points</button>
+            <button class="toggle-btn active" id="showIntercom">Intercom (Original)</button>
+            <button class="toggle-btn active" id="showCorrected">Intercom (Corrected)</button>
+            <button class="toggle-btn" id="autoFit">Auto-Fit Offset</button>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="canvas" width="1200" height="700"></canvas>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-dot stephan"></div>
+                    <span>Stephan Points (from edges)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot intercom"></div>
+                    <span>Intercom Points (original)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot corrected"></div>
+                    <span>Intercom Points (Y-corrected)</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="data-table">
+            <h3>Intercom Points Comparison</h3>
+            <table id="comparisonTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Original X</th>
+                        <th>Original Y</th>
+                        <th>Original Z</th>
+                        <th>Corrected Y</th>
+                        <th>Offset Applied</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // CSV Data embedded
+        const intercomCSV = `X,Y,Z,,,,
+73.844,-49.68,2.066,,,,
+73.844,-21.334,2.066,,,,
+-27.071,-49.68,2.066,,,,
+-27.21,-21.334,2.066,,,,
+3.048,2.828,2.066,,,,
+43.586,2.828,2.066,,,,
+3.048,-73.842,2.066,,,,
+43.586,-73.842,2.066,,,,`;
+
+        const stephanCSV = `ID,start_X,start_Y,start_Z,end_X,end_Y,end_Z,Type,Unnamed: 8,Unnamed: 9
+1,29.120,75.740,2.903,31.840,78.264,4.746,Normal,,
+2,29.133,69.318,1.067,34.875,63.575,1.067,Normal,,
+3,22.610,69.494,1.067,17.014,69.494,1.067,Normal,,
+4,16.591,69.668,1.116,10.841,75.415,2.742,Normal,,
+5,10.429,63.398,1.139,4.814,63.398,2.821,Normal,,
+6,10.495,57.129,1.119,4.747,51.379,2.841,Normal,,
+7,16.764,57.052,1.067,16.764,51.456,1.067,Normal,,
+8,4.421,51.372,2.999,1.900,54.089,4.751,Normal,,
+9,10.668,44.860,1.067,10.668,39.264,1.067,Normal,,
+10,10.878,38.878,1.067,16.554,35.188,1.067,Normal,,
+11,17.014,35.052,1.067,22.610,35.052,1.067,Normal,,
+12,16.587,28.779,1.067,10.845,23.037,1.067,Normal,,
+13,10.429,28.956,1.139,4.814,28.956,2.821,Normal,,
+14,4.426,28.787,3.001,2.034,26.077,4.749,Normal,,
+15,10.668,22.610,1.067,10.668,17.014,1.067,Normal,,
+16,23.110,22.860,1.067,28.706,22.860,1.067,Normal,,
+17,28.956,22.610,1.067,28.956,17.014,1.067,Normal,,
+18,34.875,23.037,1.067,29.133,28.779,1.067,Normal,,
+19,41.148,29.206,1.067,41.148,34.802,1.067,Normal,,
+20,28.956,29.206,1.067,28.956,34.802,1.067,Normal,,
+21,28.706,35.052,1.067,23.110,35.052,1.067,Normal,,
+22,35.302,39.014,1.067,40.898,39.014,1.067,Normal,,
+23,34.875,45.287,1.067,29.133,51.030,1.067,Normal,,
+24,28.956,50.956,1.067,28.956,45.360,1.067,Normal,,
+25,29.206,57.302,1.067,34.802,57.302,1.067,Normal,,
+26,22.610,51.206,1.067,17.014,51.206,1.067,Normal,,
+27,35.229,57.126,1.067,40.971,51.383,1.067,Normal,,
+28,23.037,39.191,1.067,28.779,44.934,1.067,Normal,,
+29,41.325,63.222,1.067,47.067,57.479,1.067,Normal,,
+30,41.398,69.494,1.067,46.994,69.494,1.067,Normal,,
+31,47.377,69.698,1.125,51.074,75.384,2.734,Normal,,
+32,51.380,75.415,2.742,57.129,69.668,1.116,Normal,,
+33,57.125,69.318,1.067,51.381,63.624,1.091,Normal,,
+34,47.379,57.513,1.067,51.068,63.237,1.091,Normal,,
+35,51.070,50.997,1.067,47.380,45.320,1.067,Normal,,
+36,57.479,51.383,1.067,63.222,57.126,1.067,Normal,,
+37,63.398,57.552,1.067,63.398,63.148,1.067,Normal,,
+38,69.671,57.126,1.067,75.414,51.383,1.067,Normal,,
+39,63.398,69.244,1.067,63.398,63.648,1.067,Normal,,
+40,69.659,75.740,2.903,72.378,78.264,4.746,Normal,,
+41,75.590,63.648,1.067,75.590,69.244,1.067,Normal,,
+42,75.590,69.735,1.135,75.590,75.347,2.723,Normal,,
+43,75.426,75.740,2.903,72.707,78.264,4.746,Normal,,
+44,81.936,69.494,1.067,87.532,69.494,1.067,Normal,,
+45,87.959,69.318,1.067,93.702,63.575,1.067,Normal,,
+46,93.878,63.148,1.067,93.878,57.552,1.067,Normal,,
+47,94.052,57.129,1.116,99.799,51.380,2.76,Normal,,
+48,87.532,57.302,1.067,81.936,57.302,1.067,Normal,,
+49,81.510,57.126,1.067,75.767,51.383,1.067,Normal,,
+50,75.768,51.030,1.067,81.295,45.526,1.076,Normal,,
+51,69.494,44.860,1.067,69.494,39.264,1.067,Normal,,
+52,63.222,39.191,1.067,57.479,44.934,1.067,Normal,,
+53,69.494,38.764,1.067,69.494,35.302,1.067,Normal,,
+54,69.671,34.875,1.067,75.414,29.133,1.067,Normal,,
+55,57.093,35.188,1.067,51.416,38.878,1.067,Normal,,
+56,57.479,28.779,1.067,63.222,23.037,1.067,Normal,,
+57,51.206,28.706,1.067,51.206,23.110,1.067,Normal,,
+58,51.206,22.610,1.067,51.206,17.014,1.067,Normal,,
+59,46.994,28.956,1.067,41.398,28.956,1.067,Normal,,
+60,51.456,16.764,1.067,57.052,16.764,1.067,Normal,,
+61,47.378,10.464,1.123,51.114,4.768,2.694,Normal,,
+62,40.898,10.668,1.067,35.302,10.668,1.067,Normal,,
+63,34.875,10.845,1.067,29.133,16.587,1.067,Normal,,
+64,34.889,4.423,2.864,32.167,1.898,4.745,Normal,,
+65,10.495,16.591,1.119,4.747,10.841,2.841,Normal,,
+66,17.014,10.668,1.067,22.610,10.668,1.067,Normal,,
+67,22.686,10.495,1.115,16.938,4.748,2.703,Normal,,
+68,29.119,4.423,2.864,31.841,1.898,4.745,Normal,,
+69,63.648,22.860,1.067,69.244,22.860,1.067,Normal,,
+70,69.744,22.860,1.067,75.340,22.860,1.067,Normal,,
+71,75.414,22.683,1.067,69.671,16.941,1.067,Normal,,
+72,81.863,29.133,1.067,87.606,34.875,1.067,Normal,,
+73,88.032,22.860,1.067,93.628,22.860,1.067,Normal,,
+74,93.878,23.110,1.067,93.878,28.706,1.067,Normal,,
+75,93.702,29.133,1.067,87.959,34.875,1.067,Normal,,
+76,100.124,28.792,2.920,102.648,26.072,4.747,Normal,,
+77,87.606,39.192,1.067,81.648,45.172,1.077,Normal,,
+78,93.878,39.264,1.067,93.878,44.860,1.067,Normal,,
+79,94.052,45.284,1.116,99.799,51.033,2.76,Normal,,
+80,100.124,51.371,2.920,102.648,54.090,4.747,Normal,,
+81,69.671,16.587,1.067,75.414,10.845,1.067,Normal,,
+82,75.340,10.668,1.067,69.744,10.668,1.067,Normal,,
+83,69.494,10.427,1.133,69.494,4.815,2.684,Normal,,
+84,69.321,4.748,2.703,63.572,10.495,1.115,Normal,,
+85,100.124,23.024,2.920,102.648,25.744,4.747,Normal,,
+86,93.878,16.514,1.067,93.878,10.918,1.067,Normal,,
+87,93.628,10.668,1.067,88.032,10.668,1.067,Normal,,
+88,87.532,10.668,1.067,81.936,10.668,1.067,Normal,,
+89,81.513,10.495,1.115,75.764,4.748,2.703,Normal,,
+90,75.427,4.423,2.864,72.706,1.898,4.745,Normal,,
+91,72.379,1.898,4.745,69.658,4.423,2.864,Normal,,
+92,63.148,10.668,1.067,57.552,10.668,1.067,Normal,,
+93,51.070,39.224,1.067,47.380,44.901,1.067,Normal,,
+94,47.494,45.112,1.067,51.118,45.130,1.076,Normal,,
+95,41.148,38.764,1.067,41.148,35.302,1.067,Normal,,
+96,51.618,45.131,1.067,57.052,45.111,1.067,Normal,,
+97,51.421,4.739,2.703,57.130,10.494,1.115,Normal,,
+98,10.491,75.411,2.794,4.751,69.671,2.89,Normal,,
+99,4.574,69.244,2.893,4.574,63.648,2.893,Normal,,
+100,4.814,10.668,2.821,10.429,10.668,1.139,Normal,,
+101,10.668,10.427,1.133,10.668,4.815,2.684,Normal,,
+102,10.918,4.574,2.751,16.514,4.574,2.751,Normal,,
+103,28.956,75.347,2.723,28.956,69.735,1.135,Normal,,
+104,28.783,75.415,2.742,23.033,69.668,1.116,Normal,,
+105,16.587,69.318,1.067,10.845,63.575,1.067,Normal,,
+106,10.668,63.148,1.067,10.668,57.552,1.067,Normal,,
+107,10.918,57.302,1.067,16.514,57.302,1.067,Normal,,
+108,4.747,51.033,2.841,10.495,45.283,1.119,Normal,,
+109,16.764,34.802,1.067,16.764,29.206,1.067,Normal,,
+110,16.974,35.188,1.067,22.650,38.878,1.067,Normal,,
+111,16.514,28.956,1.067,10.918,28.956,1.067,Normal,,
+112,16.941,28.779,1.067,22.683,23.037,1.067,Normal,,
+113,29.206,22.860,1.067,34.802,22.860,1.067,Normal,,
+114,35.229,23.037,1.067,40.971,28.779,1.067,Normal,,
+115,29.166,35.188,1.067,34.842,38.878,1.067,Normal,,
+116,35.052,39.264,1.067,35.052,44.860,1.067,Normal,,
+117,28.956,51.456,1.067,28.956,57.052,1.067,Normal,,
+118,28.779,57.126,1.067,23.037,51.383,1.067,Normal,,
+119,35.052,57.552,1.067,35.052,63.148,1.067,Normal,,
+120,35.302,63.398,1.067,40.898,63.398,1.067,Normal,,
+121,41.148,63.648,1.067,41.148,69.244,1.067,Normal,,
+122,57.552,69.494,1.067,63.148,69.494,1.067,Normal,,
+123,47.067,57.126,1.067,41.325,51.383,1.067,Normal,,
+124,47.380,57.093,1.067,51.070,51.416,1.067,Normal,,
+125,51.456,51.206,1.067,57.052,51.206,1.067,Normal,,
+126,63.648,57.302,1.067,69.244,57.302,1.067,Normal,,
+127,69.671,57.479,1.067,75.414,63.222,1.067,Normal,,
+128,63.572,69.668,1.116,69.321,75.415,2.742,Normal,,
+129,75.764,75.415,2.742,81.513,69.668,1.116,Normal,,
+130,93.628,57.302,1.067,88.032,57.302,1.067,Normal,,
+131,75.414,51.030,1.067,69.671,45.287,1.067,Normal,,
+132,69.318,44.934,1.067,63.575,39.191,1.067,Normal,,
+133,63.189,38.878,1.067,57.512,35.188,1.067,Normal,,
+134,57.302,34.802,1.067,57.302,29.206,1.067,Normal,,
+135,57.052,28.956,1.067,51.456,28.956,1.067,Normal,,
+136,51.070,23.070,1.067,47.380,28.746,1.067,Normal,,
+137,51.070,16.554,1.067,47.380,10.878,1.067,Normal,,
+138,46.994,10.668,1.067,41.398,10.668,1.067,Normal,,
+139,35.052,10.427,1.133,35.052,4.815,2.684,Normal,,
+140,10.845,16.587,1.067,16.587,10.845,1.067,Normal,,
+141,23.034,10.495,1.115,28.782,4.748,2.703,Normal,,
+142,75.590,23.110,1.067,75.590,28.706,1.067,Normal,,
+143,75.767,23.037,1.067,81.510,28.779,1.067,Normal,,
+144,81.863,28.779,1.067,87.606,23.037,1.067,Normal,,
+145,94.119,28.956,1.136,99.732,28.956,2.741,Normal,,
+146,87.782,35.302,1.067,87.782,38.764,1.067,Normal,,
+147,88.032,39.014,1.067,93.628,39.014,1.067,Normal,,
+148,99.799,22.687,2.760,94.052,16.937,1.116,Normal,,
+149,63.222,10.845,1.067,57.479,16.587,1.067,Normal,,
+150,47.067,44.934,1.067,41.325,39.191,1.067,Normal,,`;
+
+        // Parse CSV helper
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const row = {};
+                headers.forEach((h, idx) => {
+                    row[h] = values[idx] ? values[idx].trim() : '';
+                });
+                data.push(row);
+            }
+            return data;
+        }
+
+        // Parse the data
+        const intercomData = parseCSV(intercomCSV);
+        const stephanData = parseCSV(stephanCSV);
+
+        // Extract intercom points
+        const intercomPoints = intercomData
+            .filter(row => row.X && row.Y && row.Z)
+            .map(row => ({
+                x: parseFloat(row.X),
+                y: parseFloat(row.Y),
+                z: parseFloat(row.Z)
+            }));
+
+        // Extract stephan points (unique from start and end)
+        const stephanPointsMap = new Map();
+        stephanData.forEach(row => {
+            if (row.start_X && row.start_Y && row.start_Z) {
+                const key = `${row.start_X},${row.start_Y},${row.start_Z}`;
+                if (!stephanPointsMap.has(key)) {
+                    stephanPointsMap.set(key, {
+                        x: parseFloat(row.start_X),
+                        y: parseFloat(row.start_Y),
+                        z: parseFloat(row.start_Z)
+                    });
+                }
+            }
+            if (row.end_X && row.end_Y && row.end_Z) {
+                const key = `${row.end_X},${row.end_Y},${row.end_Z}`;
+                if (!stephanPointsMap.has(key)) {
+                    stephanPointsMap.set(key, {
+                        x: parseFloat(row.end_X),
+                        y: parseFloat(row.end_Y),
+                        z: parseFloat(row.end_Z)
+                    });
+                }
+            }
+        });
+        const stephanPoints = Array.from(stephanPointsMap.values());
+
+        // Calculate statistics
+        const intercomYValues = intercomPoints.map(p => p.y);
+        const stephanYValues = stephanPoints.map(p => p.y);
+
+        const intercomYMin = Math.min(...intercomYValues);
+        const intercomYMax = Math.max(...intercomYValues);
+        const intercomYMean = intercomYValues.reduce((a, b) => a + b, 0) / intercomYValues.length;
+
+        const stephanYMin = Math.min(...stephanYValues);
+        const stephanYMax = Math.max(...stephanYValues);
+        const stephanYMean = stephanYValues.reduce((a, b) => a + b, 0) / stephanYValues.length;
+
+        // Calculate X ranges for reference
+        const intercomXValues = intercomPoints.map(p => p.x);
+        const stephanXValues = stephanPoints.map(p => p.x);
+        const intercomXMin = Math.min(...intercomXValues);
+        const intercomXMax = Math.max(...intercomXValues);
+        const stephanXMin = Math.min(...stephanXValues);
+        const stephanXMax = Math.max(...stephanXValues);
+
+        // Calculate offsets
+        const yOffsetByMean = stephanYMean - intercomYMean;
+        const yOffsetByMin = stephanYMin - intercomYMin;
+        const yOffsetByMax = stephanYMax - intercomYMax;
+
+        // Best estimate: align the ranges
+        // Intercom Y range: intercomYMin to intercomYMax
+        // Stephan Y range: stephanYMin to stephanYMax
+        // If intercom sits "under", we need to shift it up
+        const calculatedOffset = yOffsetByMean;
+
+        let manualOffset = calculatedOffset;
+
+        // Display settings
+        let showStephan = true;
+        let showIntercom = true;
+        let showCorrected = true;
+
+        // Populate stats panel
+        function updateStats() {
+            document.getElementById('statsPanel').innerHTML = `
+                <div class="stat-card">
+                    <h3>Stephan Points</h3>
+                    <div class="value stephan">${stephanPoints.length} points</div>
+                    <div class="detail">Y range: ${stephanYMin.toFixed(3)} to ${stephanYMax.toFixed(3)}</div>
+                    <div class="detail">Y mean: ${stephanYMean.toFixed(3)}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Intercom Points</h3>
+                    <div class="value intercom">${intercomPoints.length} points</div>
+                    <div class="detail">Y range: ${intercomYMin.toFixed(3)} to ${intercomYMax.toFixed(3)}</div>
+                    <div class="detail">Y mean: ${intercomYMean.toFixed(3)}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Calculated Y Offset (by mean)</h3>
+                    <div class="value offset">${yOffsetByMean.toFixed(3)}</div>
+                    <div class="detail">Intercom Y + ${yOffsetByMean.toFixed(3)} → aligned</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Current Y Offset</h3>
+                    <div class="value corrected">${manualOffset.toFixed(3)}</div>
+                    <div class="detail">Applied to intercom points</div>
+                </div>
+            `;
+        }
+
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function draw() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = canvas.clientWidth * dpr;
+            canvas.height = canvas.clientHeight * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+            const padding = 60;
+
+            // Clear
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, width, height);
+
+            // Calculate bounds (include all points with offset)
+            const allX = [...stephanXValues, ...intercomXValues];
+            const allY = [...stephanYValues, ...intercomYValues, ...intercomYValues.map(y => y + manualOffset)];
+            
+            const xMin = Math.min(...allX) - 5;
+            const xMax = Math.max(...allX) + 5;
+            const yMin = Math.min(...allY) - 5;
+            const yMax = Math.max(...allY) + 5;
+
+            // Scale functions
+            const scaleX = (x) => padding + ((x - xMin) / (xMax - xMin)) * (width - 2 * padding);
+            const scaleY = (y) => height - padding - ((y - yMin) / (yMax - yMin)) * (height - 2 * padding);
+
+            // Draw grid
+            ctx.strokeStyle = '#1a1a2a';
+            ctx.lineWidth = 1;
+            
+            // Vertical grid lines
+            for (let x = Math.ceil(xMin / 10) * 10; x <= xMax; x += 10) {
+                ctx.beginPath();
+                ctx.moveTo(scaleX(x), padding);
+                ctx.lineTo(scaleX(x), height - padding);
+                ctx.stroke();
+            }
+            
+            // Horizontal grid lines
+            for (let y = Math.ceil(yMin / 10) * 10; y <= yMax; y += 10) {
+                ctx.beginPath();
+                ctx.moveTo(padding, scaleY(y));
+                ctx.lineTo(width - padding, scaleY(y));
+                ctx.stroke();
+            }
+
+            // Draw axes labels
+            ctx.fillStyle = '#666';
+            ctx.font = '11px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            
+            for (let x = Math.ceil(xMin / 20) * 20; x <= xMax; x += 20) {
+                ctx.fillText(x.toFixed(0), scaleX(x), height - padding + 20);
+            }
+            
+            ctx.textAlign = 'right';
+            for (let y = Math.ceil(yMin / 20) * 20; y <= yMax; y += 20) {
+                ctx.fillText(y.toFixed(0), padding - 10, scaleY(y) + 4);
+            }
+
+            // Axis labels
+            ctx.fillStyle = '#888';
+            ctx.font = '12px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('X', width / 2, height - 15);
+            ctx.save();
+            ctx.translate(15, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('Y', 0, 0);
+            ctx.restore();
+
+            // Draw points
+            // Stephan points (red)
+            if (showStephan) {
+                ctx.fillStyle = '#ff6b6b';
+                stephanPoints.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(scaleX(p.x), scaleY(p.y), 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+
+            // Intercom original (cyan)
+            if (showIntercom) {
+                ctx.fillStyle = '#4ecdc4';
+                intercomPoints.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(scaleX(p.x), scaleY(p.y), 6, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+
+            // Intercom corrected (purple)
+            if (showCorrected) {
+                ctx.fillStyle = '#a855f7';
+                ctx.strokeStyle = '#a855f7';
+                ctx.lineWidth = 2;
+                intercomPoints.forEach(p => {
+                    const correctedY = p.y + manualOffset;
+                    ctx.beginPath();
+                    ctx.arc(scaleX(p.x), scaleY(correctedY), 8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    
+                    // Draw connection line from original to corrected
+                    if (showIntercom) {
+                        ctx.beginPath();
+                        ctx.setLineDash([4, 4]);
+                        ctx.moveTo(scaleX(p.x), scaleY(p.y));
+                        ctx.lineTo(scaleX(p.x), scaleY(correctedY));
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                });
+            }
+        }
+
+        // Update table
+        function updateTable() {
+            const tbody = document.querySelector('#comparisonTable tbody');
+            tbody.innerHTML = intercomPoints.map((p, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td class="intercom">${p.x.toFixed(3)}</td>
+                    <td class="intercom">${p.y.toFixed(3)}</td>
+                    <td class="intercom">${p.z.toFixed(3)}</td>
+                    <td class="corrected">${(p.y + manualOffset).toFixed(3)}</td>
+                    <td class="offset">${manualOffset.toFixed(3)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Event handlers
+        const slider = document.getElementById('offsetSlider');
+        slider.value = calculatedOffset;
+        
+        slider.addEventListener('input', () => {
+            manualOffset = parseFloat(slider.value);
+            document.getElementById('sliderValue').textContent = manualOffset.toFixed(3);
+            updateStats();
+            updateTable();
+            draw();
+        });
+
+        document.getElementById('showStephan').addEventListener('click', function() {
+            showStephan = !showStephan;
+            this.classList.toggle('active');
+            draw();
+        });
+
+        document.getElementById('showIntercom').addEventListener('click', function() {
+            showIntercom = !showIntercom;
+            this.classList.toggle('active');
+            draw();
+        });
+
+        document.getElementById('showCorrected').addEventListener('click', function() {
+            showCorrected = !showCorrected;
+            this.classList.toggle('active');
+            draw();
+        });
+
+        document.getElementById('autoFit').addEventListener('click', function() {
+            manualOffset = calculatedOffset;
+            slider.value = calculatedOffset;
+            document.getElementById('sliderValue').textContent = calculatedOffset.toFixed(3);
+            updateStats();
+            updateTable();
+            draw();
+        });
+
+        // Initial render
+        document.getElementById('sliderValue').textContent = calculatedOffset.toFixed(3);
+        updateStats();
+        updateTable();
+        draw();
+
+        // Resize handler
+        window.addEventListener('resize', draw);
+
+        // Log results to console
+        console.log('=== OFFSET ANALYSIS ===');
+        console.log(`Intercom points: ${intercomPoints.length}`);
+        console.log(`Stephan points: ${stephanPoints.length}`);
+        console.log(`\nIntercom Y range: ${intercomYMin.toFixed(3)} to ${intercomYMax.toFixed(3)} (mean: ${intercomYMean.toFixed(3)})`);
+        console.log(`Stephan Y range: ${stephanYMin.toFixed(3)} to ${stephanYMax.toFixed(3)} (mean: ${stephanYMean.toFixed(3)})`);
+        console.log(`\nCalculated Y offset (by mean): ${yOffsetByMean.toFixed(3)}`);
+        console.log(`Y offset (by min): ${yOffsetByMin.toFixed(3)}`);
+        console.log(`Y offset (by max): ${yOffsetByMax.toFixed(3)}`);
+    </script>
+</body>
+</html>
+

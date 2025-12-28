@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pillar Center Finder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            height: 100vh;
+        }
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background-color: #ffffff;
+        }
+        #pillarCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .control-panel {
+            width: 320px;
+            background-color: #ffffff;
+            border-left: 1px solid #ddd;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .control-panel h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 4px;
+        }
+        .control-panel h3 {
+            font-size: 12px;
+            margin-bottom: 6px;
+            color: #555;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .control-section {
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        label {
+            display: block;
+            margin-bottom: 2px;
+            font-size: 12px;
+            color: #555;
+            font-weight: 500;
+        }
+        label span {
+            float: right;
+            color: #007bff;
+            font-weight: 600;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .btn {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 6px;
+            border: 1px solid #ddd;
+            background-color: #f8f9fa;
+            color: #333;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #e9ecef;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .info-box {
+            font-size: 11px;
+            color: #555;
+            margin-top: 6px;
+            padding: 8px;
+            background-color: #e7f3ff;
+            border: 1px solid #b3d7ff;
+            border-radius: 4px;
+            white-space: pre-line;
+            line-height: 1.4;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .results-table {
+            font-size: 10px;
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+        }
+        .results-table th, .results-table td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+        }
+        .results-table th {
+            background-color: #f8f9fa;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+        }
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .legend-square {
+            width: 12px;
+            height: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <canvas id="pillarCanvas"></canvas>
+    </div>
+
+    <div class="control-panel">
+        <h2>Pillar Center Finder</h2>
+
+        <div class="control-section">
+            <h3>Data</h3>
+            <button id="loadDataBtn" class="btn">Load CSV Data</button>
+            <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+            <button id="findPillarsBtn" class="btn btn-primary">Find Pillar Centers</button>
+            <button id="exportBtn" class="btn">Export Centroids CSV</button>
+        </div>
+
+        <div class="control-section">
+            <h3>Clustering Settings</h3>
+            <label>Cluster Radius: <span id="radiusValue">1.5</span> units</label>
+            <input type="range" id="clusterRadius" min="0.1" max="5" step="0.1" value="1.5">
+            <p style="font-size: 10px; color: #888; margin-top: 4px;">
+                Points within this radius are considered on the same pillar.
+            </p>
+        </div>
+
+        <div class="control-section">
+            <h3>Display</h3>
+            <label>
+                <input type="checkbox" id="showRawPoints" checked>
+                Show Raw Points
+            </label>
+            <label>
+                <input type="checkbox" id="showCentroids" checked>
+                Show Centroids
+            </label>
+            <label>
+                <input type="checkbox" id="showClusterCircles" checked>
+                Show Cluster Circles
+            </label>
+            <label>
+                <input type="checkbox" id="showLabels" checked>
+                Show Labels
+            </label>
+            <label>Point Size: <span id="pointSizeValue">4</span></label>
+            <input type="range" id="pointSize" min="1" max="15" step="1" value="4">
+        </div>
+
+        <div class="control-section">
+            <h3>Legend</h3>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background-color: rgba(255, 0, 0, 0.5);"></div>
+                    <span>Raw Points</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background-color: #00aa00; border: 2px solid #006600;"></div>
+                    <span>Centroids</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background-color: transparent; border: 2px dashed #0066ff;"></div>
+                    <span>Cluster Area</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <h3>Results</h3>
+            <div id="resultsInfo" class="info-box">Load CSV and click "Find Pillar Centers"</div>
+        </div>
+    </div>
+
+    <script src="pillar-finder.js"></script>
+</body>
+</html>

@@ -1019,7 +1019,29 @@ class NetworkVisualizer {
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
 
+        // Aggregate power by binned Y coordinates to avoid overlapping text
+        const binnedPower = new Map();
+        const binTolerance = 0.5; // Group Y values within 0.5m
+
         for (const [y, amps] of this.artnetOptimization.rowPower.entries()) {
+            // Find the closest binned row Y
+            let binnedY = y;
+            if (this.gridRowsY && this.gridRowsY.length > 0) {
+                let minDist = Infinity;
+                for (const gridY of this.gridRowsY) {
+                    const dist = Math.abs(y - gridY);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        binnedY = gridY;
+                    }
+                }
+            }
+            
+            // Aggregate amps for this binned Y
+            binnedPower.set(binnedY, (binnedPower.get(binnedY) || 0) + amps);
+        }
+
+        for (const [y, amps] of binnedPower.entries()) {
             const pos = this.worldToCanvas(this.worldMaxX, y);
 
             // Color code: Green (OK), Orange (warning >18A), Red (violation >20A)

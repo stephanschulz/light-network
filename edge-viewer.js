@@ -11,8 +11,12 @@ class EdgeViewer {
         this.showNodes = document.getElementById('showNodes')?.checked ?? true;
         this.showUnderlyingGrid = document.getElementById('showUnderlyingGrid')?.checked ?? true;
         this.flipY = document.getElementById('flipY')?.checked ?? true;
+        this.showSanityCheck = document.getElementById('showSanityCheck')?.checked ?? false;
         this.lineWidth = parseInt(document.getElementById('lineWidth')?.value ?? 2);
         this.nodeSize = parseInt(document.getElementById('nodeSize')?.value ?? 1);
+        
+        // Sanity check points
+        this.sanityCheckPoints = [];
         
         // World bounds
         this.worldMinX = 0;
@@ -70,6 +74,14 @@ class EdgeViewer {
             }
         });
 
+        document.getElementById('snapToPillarsBtn').addEventListener('click', () => {
+            this.snapEdgesToPillars();
+        });
+
+        document.getElementById('exportCsvBtn').addEventListener('click', () => {
+            this.exportEdgesCSV();
+        });
+
         document.getElementById('showEdgeIds').addEventListener('change', (e) => {
             this.showEdgeIds = e.target.checked;
             this.draw();
@@ -93,6 +105,15 @@ class EdgeViewer {
         document.getElementById('flipY').addEventListener('change', (e) => {
             this.flipY = e.target.checked;
             this.draw();
+        });
+
+        document.getElementById('showSanityCheck').addEventListener('change', (e) => {
+            this.showSanityCheck = e.target.checked;
+            if (this.showSanityCheck && this.sanityCheckPoints.length === 0) {
+                this.loadSanityCheckCSV();
+            } else {
+                this.draw();
+            }
         });
 
         document.getElementById('lineWidth').addEventListener('input', (e) => {
@@ -253,6 +274,207 @@ class EdgeViewer {
             this.parseCSV(e.target.result);
         };
         reader.readAsText(file);
+    }
+
+    async loadSanityCheckCSV() {
+        try {
+            const response = await fetch('./data/004_sanitycheck.csv');
+            if (!response.ok) throw new Error('Sanity check file not found');
+            const text = await response.text();
+            this.parseSanityCheckCSV(text);
+        } catch (error) {
+            console.log('Sanity check CSV not found:', error.message);
+        }
+    }
+
+    parseSanityCheckCSV(csvText) {
+        const lines = csvText.trim().split('\n');
+        this.sanityCheckPoints = [];
+        
+        // Parse header to find column indices
+        const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const pillarIdx = header.findIndex(h => h === 'pillar');
+        const pxIdx = header.findIndex(h => h === 'px');
+        const pyIdx = header.findIndex(h => h === 'py');
+        const pzIdx = header.findIndex(h => h === 'pz');
+
+        console.log('Sanity Check CSV Header:', header);
+
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+
+            const values = lines[i].split(',');
+            
+            const pillar = pillarIdx >= 0 ? values[pillarIdx].trim() : String(i - 1);
+            const px = parseFloat(values[pxIdx]);
+            const py = parseFloat(values[pyIdx]);
+            const pz = pzIdx >= 0 ? parseFloat(values[pzIdx]) : 0;
+
+            if (isNaN(px) || isNaN(py)) continue;
+
+            this.sanityCheckPoints.push({
+                id: pillar,
+                x: px,
+                y: py,
+                z: pz
+            });
+        }
+
+        console.log(`Loaded ${this.sanityCheckPoints.length} sanity check points`);
+        this.draw();
+    }
+
+    findNearestPillar(x, y) {
+        if (this.sanityCheckPoints.length === 0) return null;
+        
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const p of this.sanityCheckPoints) {
+            const dist = Math.sqrt((p.x - x) ** 2 + (p.y - y) ** 2);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = { ...p, distance: dist };
+            }
+        }
+        
+        return nearest;
+    }
+
+    snapEdgesToPillars() {
+        if (this.edges.length === 0) {
+            alert('No edges loaded. Please load a CSV first.');
+            return;
+        }
+        
+        if (this.sanityCheckPoints.length === 0) {
+            // Load sanity check points first
+            this.loadSanityCheckCSV().then(() => {
+                this.performSnap();
+            });
+        } else {
+            this.performSnap();
+        }
+    }
+
+    performSnap() {
+        if (this.sanityCheckPoints.length === 0) {
+            alert('No sanity check points loaded.');
+            return;
+        }
+
+        // Calculate bounds of sanity check points
+        const pillarMinX = Math.min(...this.sanityCheckPoints.map(p => p.x));
+        const pillarMaxX = Math.max(...this.sanityCheckPoints.map(p => p.x));
+        const pillarMinY = Math.min(...this.sanityCheckPoints.map(p => p.y));
+        const pillarMaxY = Math.max(...this.sanityCheckPoints.map(p => p.y));
+        
+        // Add a small margin for points just outside the grid
+        const margin = 1.0; // 1 meter margin
+        
+        console.log(`Pillar bounds: X[${pillarMinX.toFixed(2)}, ${pillarMaxX.toFixed(2)}] Y[${pillarMinY.toFixed(2)}, ${pillarMaxY.toFixed(2)}]`);
+
+        const isWithinBounds = (x, y) => {
+            return x >= (pillarMinX - margin) && x <= (pillarMaxX + margin) &&
+                   y >= (pillarMinY - margin) && y <= (pillarMaxY + margin);
+        };
+
+        let snappedCount = 0;
+        let skippedCount = 0;
+        let totalDistance = 0;
+        let maxDistance = 0;
+
+        for (const edge of this.edges) {
+            // Snap start point only if within bounds
+            if (isWithinBounds(edge.startX, edge.startY)) {
+                const nearestStart = this.findNearestPillar(edge.startX, edge.startY);
+                if (nearestStart) {
+                    totalDistance += nearestStart.distance;
+                    maxDistance = Math.max(maxDistance, nearestStart.distance);
+                    edge.startX = nearestStart.x;
+                    edge.startY = nearestStart.y;
+                    snappedCount++;
+                }
+            } else {
+                skippedCount++;
+                console.log(`Skipped start of edge ${edge.id}: (${edge.startX.toFixed(2)}, ${edge.startY.toFixed(2)}) - outside pillar bounds`);
+            }
+
+            // Snap end point only if within bounds
+            if (isWithinBounds(edge.endX, edge.endY)) {
+                const nearestEnd = this.findNearestPillar(edge.endX, edge.endY);
+                if (nearestEnd) {
+                    totalDistance += nearestEnd.distance;
+                    maxDistance = Math.max(maxDistance, nearestEnd.distance);
+                    edge.endX = nearestEnd.x;
+                    edge.endY = nearestEnd.y;
+                    snappedCount++;
+                }
+            } else {
+                skippedCount++;
+                console.log(`Skipped end of edge ${edge.id}: (${edge.endX.toFixed(2)}, ${edge.endY.toFixed(2)}) - outside pillar bounds`);
+            }
+
+            // Recalculate edge length after snapping
+            const dx = edge.endX - edge.startX;
+            const dy = edge.endY - edge.startY;
+            const dz = edge.endZ - edge.startZ;
+            edge.calculatedLength = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        const avgDistance = snappedCount > 0 ? totalDistance / snappedCount : 0;
+        
+        console.log('=== SNAP TO PILLARS ===');
+        console.log(`Snapped ${snappedCount} endpoints`);
+        console.log(`Skipped ${skippedCount} endpoints (outside pillar bounds)`);
+        console.log(`Average snap distance: ${(avgDistance * 1000).toFixed(1)} mm`);
+        console.log(`Max snap distance: ${(maxDistance * 1000).toFixed(1)} mm`);
+
+        alert(`Snapped ${snappedCount} endpoints to pillars.\nSkipped ${skippedCount} endpoints (outside bounds).\n\nAvg distance: ${(avgDistance * 1000).toFixed(1)} mm\nMax distance: ${(maxDistance * 1000).toFixed(1)} mm`);
+
+        // Recalculate bounds and redraw
+        this.calculateBounds();
+        this.analyzeGridStructure();
+        this.updateStats();
+        this.draw();
+    }
+
+    exportEdgesCSV() {
+        if (this.edges.length === 0) {
+            alert('No edges to export. Please load a CSV first.');
+            return;
+        }
+
+        // Build CSV content
+        const header = 'ID,start_X,start_Y,start_Z,end_X,end_Y,end_Z,Edge_Length';
+        const rows = this.edges.map(edge => {
+            return [
+                edge.id,
+                edge.startX.toFixed(6),
+                edge.startY.toFixed(6),
+                edge.startZ.toFixed(6),
+                edge.endX.toFixed(6),
+                edge.endY.toFixed(6),
+                edge.endZ.toFixed(6),
+                edge.calculatedLength.toFixed(6)
+            ].join(',');
+        });
+
+        const csvContent = [header, ...rows].join('\n');
+
+        // Create download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'edges_snapped.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        console.log(`Exported ${this.edges.length} edges to CSV`);
     }
 
     parseCSV(csvText) {
@@ -789,6 +1011,11 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
             this.drawNodes();
         }
 
+        // Draw sanity check points
+        if (this.showSanityCheck) {
+            this.drawSanityCheckPoints();
+        }
+
         // Draw title
         this.ctx.fillStyle = '#333';
         this.ctx.font = 'bold 14px sans-serif';
@@ -1039,6 +1266,47 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.fillText(node.count.toString(), pos.x, pos.y);
+            }
+        }
+    }
+
+    drawSanityCheckPoints() {
+        if (this.sanityCheckPoints.length === 0) return;
+
+        for (const point of this.sanityCheckPoints) {
+            const pos = this.worldToCanvas(point.x, point.y);
+            
+            // Draw as orange/yellow diamonds to distinguish from edge nodes
+            const size = 5;
+            
+            this.ctx.beginPath();
+            this.ctx.moveTo(pos.x, pos.y - size);
+            this.ctx.lineTo(pos.x + size, pos.y);
+            this.ctx.lineTo(pos.x, pos.y + size);
+            this.ctx.lineTo(pos.x - size, pos.y);
+            this.ctx.closePath();
+            
+            // Color based on Z height (low level vs high level)
+            if (point.z > 1.5) {
+                this.ctx.fillStyle = 'rgba(255, 165, 0, 0.7)'; // Orange for elevated
+            } else {
+                this.ctx.fillStyle = 'rgba(255, 215, 0, 0.7)'; // Gold for ground level
+            }
+            this.ctx.fill();
+            this.ctx.strokeStyle = '#cc6600';
+            this.ctx.lineWidth = 1;
+            this.ctx.stroke();
+        }
+
+        // Draw pillar IDs when zoomed in
+        if (this.zoomLevel >= 2) {
+            this.ctx.font = '8px sans-serif';
+            this.ctx.fillStyle = '#885500';
+            this.ctx.textAlign = 'center';
+            
+            for (const point of this.sanityCheckPoints) {
+                const pos = this.worldToCanvas(point.x, point.y);
+                this.ctx.fillText(point.id, pos.x, pos.y - 8);
             }
         }
     }

@@ -369,7 +369,7 @@ class NetworkVisualizer {
 
     async loadDefaultCSV() {
         try {
-            const response = await fetch('./data/CSV_Dec26_003-s5.csv');
+            const response = await fetch('./data/Dec-29-edge_data_export-snapped.csv');
             if (!response.ok) {
                 console.log('Default CSV not found (HTTP ' + response.status + '), please upload a file');
                 return;

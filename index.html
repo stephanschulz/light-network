@@ -38,6 +38,7 @@
                 <button id="loadDataBtn" class="btn">Load CSV Data</button>
                 <input type="file" id="csvFileInput" accept=".csv" style="display:none">
                 <button id="exportEdgesBtn" class="btn">Export Edge Data</button>
+                <button id="exportLengthsBtn" class="btn">Export Length Summary</button>
                 <button id="printResultsBtn" class="btn">Print Node Results</button>
                 <label>
                     <input type="checkbox" id="flipYToggle">
@@ -95,6 +96,9 @@
                 <label>Edge Length Filter:</label>
                 <input type="range" id="lengthFilter" min="-1" max="0" step="1" value="-1">
                 <div id="lengthFilterLabel">All</div>
+
+                <label>Node Circumference: <span id="nodeCircumferenceValue">0.50</span> m</label>
+                <input type="range" id="nodeCircumference" min="0" max="1" step="0.01" value="0.5">
             </div>
 
             <!-- Footer -->

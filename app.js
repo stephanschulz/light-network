@@ -19,6 +19,7 @@ class NetworkVisualizer {
         this.intercomEditMode = false;
         this.edgeFlipMode = false;
         this.yFlipped = false;
+        this.nodeCircumference = 0.5; // meters
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -124,6 +125,11 @@ class NetworkVisualizer {
             this.drawNetwork();
         });
 
+        document.getElementById('nodeCircumference').addEventListener('input', (e) => {
+            this.nodeCircumference = parseFloat(e.target.value);
+            document.getElementById('nodeCircumferenceValue').textContent = this.nodeCircumference.toFixed(2);
+        });
+
         // Buttons
         document.getElementById('loadDataBtn').addEventListener('click', () => {
             document.getElementById('csvFileInput').click();
@@ -139,6 +145,10 @@ class NetworkVisualizer {
 
         document.getElementById('exportEdgesBtn').addEventListener('click', () => {
             this.exportEdgeData();
+        });
+
+        document.getElementById('exportLengthsBtn').addEventListener('click', () => {
+            this.exportLengthSummary();
         });
 
         document.getElementById('printResultsBtn').addEventListener('click', () => {
@@ -2022,6 +2032,58 @@ class NetworkVisualizer {
         }
 
         this.downloadCSV('edge_data_export.csv', csv);
+    }
+
+    exportLengthSummary() {
+        // Collect all edge lengths and count occurrences
+        const lengthData = new Map(); // length -> { total: count, intercom: count, edgeIds: [] }
+        
+        for (const edge of this.edges) {
+            const length = this.calculateEdgeLength(edge);
+            const rounded = Math.round(length * 100) / 100; // Round to 2 decimal places
+            const edgeId = this.edgeIds.get(edge) || '?';
+            const isIntercom = this.intercomEdges.includes(edge);
+            
+            if (!lengthData.has(rounded)) {
+                lengthData.set(rounded, { total: 0, intercom: 0, normalEdgeIds: [], intercomEdgeIds: [] });
+            }
+            
+            const data = lengthData.get(rounded);
+            data.total++;
+            if (isIntercom) {
+                data.intercom++;
+                data.intercomEdgeIds.push(edgeId);
+            } else {
+                data.normalEdgeIds.push(edgeId);
+            }
+        }
+        
+        // Sort by length
+        const sortedLengths = Array.from(lengthData.entries()).sort((a, b) => a[0] - b[0]);
+        
+        // Build CSV with adjusted length (minus node circumference)
+        const circumference = this.nodeCircumference;
+        let csv = `Length_m,Length_Adjusted_m,Total_Count,Normal_Count,Intercom_Count,Normal_Edge_IDs,Intercom_Edge_IDs\n`;
+        csv += `# Node Circumference: ${circumference.toFixed(2)}m (subtracted from Length to get Length_Adjusted)\n`;
+        
+        for (const [length, data] of sortedLengths) {
+            const adjustedLength = Math.max(0, length - circumference); // Don't go negative
+            const normalCount = data.total - data.intercom;
+            const normalIds = data.normalEdgeIds.join(';');
+            const intercomIds = data.intercomEdgeIds.join(';');
+            csv += `${length.toFixed(2)},${adjustedLength.toFixed(2)},${data.total},${normalCount},${data.intercom},"${normalIds}","${intercomIds}"\n`;
+        }
+        
+        // Add summary row
+        const totalEdges = this.edges.length;
+        const totalIntercom = this.intercomEdges.length;
+        const totalNormal = totalEdges - totalIntercom;
+        csv += `\nSUMMARY,,${totalEdges},${totalNormal},${totalIntercom},,\n`;
+        csv += `Unique_Lengths,,${sortedLengths.length},,,,\n`;
+        csv += `Node_Circumference,${circumference.toFixed(2)}m,,,,,\n`;
+        
+        this.downloadCSV('edge_length_summary.csv', csv);
+        console.log(`Exported length summary: ${sortedLengths.length} unique lengths, ${totalEdges} total edges (${totalIntercom} intercom), circumference: ${circumference}m`);
     }
 
     downloadCSV(filename, content) {

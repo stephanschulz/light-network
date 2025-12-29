@@ -10,6 +10,7 @@ class EdgeViewer {
         this.showLengths = false;
         this.showNodes = true;
         this.showUnderlyingGrid = true;
+        this.flipY = true;
         this.lineWidth = 2;
         this.nodeSize = 4;
         
@@ -86,6 +87,11 @@ class EdgeViewer {
 
         document.getElementById('showUnderlyingGrid').addEventListener('change', (e) => {
             this.showUnderlyingGrid = e.target.checked;
+            this.draw();
+        });
+
+        document.getElementById('flipY').addEventListener('change', (e) => {
+            this.flipY = e.target.checked;
             this.draw();
         });
 
@@ -220,13 +226,18 @@ class EdgeViewer {
         // Reverse the worldToCanvas transformation
         const effectiveScale = this.baseScale * this.zoomLevel;
         const x = (canvasX - this.offsetX - this.panX) / effectiveScale + this.worldMinX;
-        const y = this.worldMaxY - (canvasY - this.offsetY - this.panY) / effectiveScale;
-        return { x, y };
+        let worldY;
+        if (this.flipY) {
+            worldY = this.worldMaxY - (canvasY - this.offsetY - this.panY) / effectiveScale;
+        } else {
+            worldY = (canvasY - this.offsetY - this.panY) / effectiveScale + this.worldMinY;
+        }
+        return { x, y: worldY };
     }
 
     async loadDefaultCSV() {
         try {
-            const response = await fetch('./data/CSV_Dec26_003-s5.csv');
+            const response = await fetch('./data/003-s.csv');
             if (!response.ok) throw new Error('File not found');
             const text = await response.text();
             this.parseCSV(text);
@@ -433,10 +444,17 @@ class EdgeViewer {
 
     worldToCanvas(x, y) {
         const effectiveScale = this.baseScale * this.zoomLevel;
+        let canvasY;
+        if (this.flipY) {
+            // Flipped: higher world Y values appear at top of canvas (mathematical coordinates)
+            canvasY = this.offsetY + this.panY + (this.worldMaxY - y) * effectiveScale;
+        } else {
+            // Normal: higher world Y values appear at bottom of canvas (screen coordinates)
+            canvasY = this.offsetY + this.panY + (y - this.worldMinY) * effectiveScale;
+        }
         return {
             x: this.offsetX + this.panX + (x - this.worldMinX) * effectiveScale,
-            // Flip Y axis: higher world Y values appear at top of canvas
-            y: this.offsetY + this.panY + (this.worldMaxY - y) * effectiveScale
+            y: canvasY
         };
     }
 

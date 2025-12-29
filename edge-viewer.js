@@ -12,7 +12,7 @@ class EdgeViewer {
         this.showUnderlyingGrid = document.getElementById('showUnderlyingGrid')?.checked ?? true;
         this.flipY = document.getElementById('flipY')?.checked ?? true;
         this.lineWidth = parseInt(document.getElementById('lineWidth')?.value ?? 2);
-        this.nodeSize = parseInt(document.getElementById('nodeSize')?.value ?? 4);
+        this.nodeSize = parseInt(document.getElementById('nodeSize')?.value ?? 1);
         
         // World bounds
         this.worldMinX = 0;

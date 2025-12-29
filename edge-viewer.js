@@ -5,14 +5,14 @@ class EdgeViewer {
         
         this.edges = [];
         
-        // Display settings
-        this.showEdgeIds = true;
-        this.showLengths = false;
-        this.showNodes = true;
-        this.showUnderlyingGrid = true;
-        this.flipY = true;
-        this.lineWidth = 2;
-        this.nodeSize = 4;
+        // Display settings - read from DOM to stay in sync with HTML defaults
+        this.showEdgeIds = document.getElementById('showEdgeIds')?.checked ?? true;
+        this.showLengths = document.getElementById('showLengths')?.checked ?? false;
+        this.showNodes = document.getElementById('showNodes')?.checked ?? true;
+        this.showUnderlyingGrid = document.getElementById('showUnderlyingGrid')?.checked ?? true;
+        this.flipY = document.getElementById('flipY')?.checked ?? true;
+        this.lineWidth = parseInt(document.getElementById('lineWidth')?.value ?? 2);
+        this.nodeSize = parseInt(document.getElementById('nodeSize')?.value ?? 4);
         
         // World bounds
         this.worldMinX = 0;

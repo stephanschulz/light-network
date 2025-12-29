@@ -9,6 +9,7 @@ class EdgeViewer {
         this.showEdgeIds = true;
         this.showLengths = false;
         this.showNodes = true;
+        this.showUnderlyingGrid = true;
         this.lineWidth = 2;
         this.nodeSize = 4;
         
@@ -32,6 +33,11 @@ class EdgeViewer {
         
         this.extensionAmount = 0; // meters to extend edges
         this.clusterRadius = 0.15; // meters for clustering
+        
+        // Underlying grid data
+        this.gridX = [];
+        this.gridY = [];
+        this.gridNodes = []; // all unique node positions
         
         this.setupCanvas();
         this.setupEventListeners();
@@ -75,6 +81,11 @@ class EdgeViewer {
 
         document.getElementById('showNodes').addEventListener('change', (e) => {
             this.showNodes = e.target.checked;
+            this.draw();
+        });
+
+        document.getElementById('showUnderlyingGrid').addEventListener('change', (e) => {
+            this.showUnderlyingGrid = e.target.checked;
             this.draw();
         });
 
@@ -215,7 +226,8 @@ class EdgeViewer {
 
     async loadDefaultCSV() {
         try {
-            const response = await fetch('./data/CSV_Dec26_002-s.csv');
+            const response = await fetch('./data/CSV_Dec26_003-s5.csv');
+            if (!response.ok) throw new Error('File not found');
             const text = await response.text();
             this.parseCSV(text);
         } catch (error) {
@@ -289,10 +301,111 @@ class EdgeViewer {
         console.log(`Loaded ${this.edges.length} edges from CSV`);
         
         this.calculateBounds();
+        this.analyzeGridStructure();
         this.verifyLengths();
         this.analyzeExtendedEdges();
         this.updateStats();
         this.draw();
+    }
+
+    analyzeGridStructure() {
+        if (this.edges.length === 0) return;
+        
+        // Collect all unique X and Y coordinates from node positions
+        const xCoords = new Set();
+        const yCoords = new Set();
+        const nodeMap = new Map(); // key: "x,y" -> {x, y, z, count}
+        
+        for (const edge of this.edges) {
+            // Round to 2 decimal places for grouping
+            const startKey = `${edge.startX.toFixed(2)},${edge.startY.toFixed(2)}`;
+            const endKey = `${edge.endX.toFixed(2)},${edge.endY.toFixed(2)}`;
+            
+            if (!nodeMap.has(startKey)) {
+                nodeMap.set(startKey, { x: edge.startX, y: edge.startY, z: edge.startZ, count: 0 });
+            }
+            nodeMap.get(startKey).count++;
+            
+            if (!nodeMap.has(endKey)) {
+                nodeMap.set(endKey, { x: edge.endX, y: edge.endY, z: edge.endZ, count: 0 });
+            }
+            nodeMap.get(endKey).count++;
+            
+            xCoords.add(edge.startX);
+            xCoords.add(edge.endX);
+            yCoords.add(edge.startY);
+            yCoords.add(edge.endY);
+        }
+        
+        // Store unique nodes
+        this.gridNodes = Array.from(nodeMap.values());
+        
+        // Sort and find unique grid lines
+        const sortedX = Array.from(xCoords).sort((a, b) => a - b);
+        const sortedY = Array.from(yCoords).sort((a, b) => a - b);
+        
+        // Cluster nearby coordinates (within 0.5m tolerance) to find grid lines
+        this.gridX = this.clusterGridCoordinates(sortedX, 0.5);
+        this.gridY = this.clusterGridCoordinates(sortedY, 0.5);
+        
+        // Analyze grid spacing
+        const xSpacings = [];
+        const ySpacings = [];
+        
+        for (let i = 1; i < this.gridX.length; i++) {
+            xSpacings.push(this.gridX[i] - this.gridX[i-1]);
+        }
+        for (let i = 1; i < this.gridY.length; i++) {
+            ySpacings.push(this.gridY[i] - this.gridY[i-1]);
+        }
+        
+        // Find the most common spacing
+        const avgXSpacing = xSpacings.length > 0 ? xSpacings.reduce((a,b) => a+b, 0) / xSpacings.length : 0;
+        const avgYSpacing = ySpacings.length > 0 ? ySpacings.reduce((a,b) => a+b, 0) / ySpacings.length : 0;
+        
+        console.log('=== GRID STRUCTURE ANALYSIS ===');
+        console.log(`Unique X grid lines: ${this.gridX.length}`);
+        console.log(`Unique Y grid lines: ${this.gridY.length}`);
+        console.log(`X grid lines: ${this.gridX.map(x => x.toFixed(2)).join(', ')}`);
+        console.log(`Y grid lines: ${this.gridY.map(y => y.toFixed(2)).join(', ')}`);
+        console.log(`Average X spacing: ${avgXSpacing.toFixed(3)} m`);
+        console.log(`Average Y spacing: ${avgYSpacing.toFixed(3)} m`);
+        console.log(`Total unique nodes: ${this.gridNodes.length}`);
+        
+        // Store grid info for display
+        this.gridInfo = {
+            xLines: this.gridX.length,
+            yLines: this.gridY.length,
+            avgXSpacing: avgXSpacing,
+            avgYSpacing: avgYSpacing,
+            totalNodes: this.gridNodes.length
+        };
+    }
+
+    clusterGridCoordinates(coords, tolerance) {
+        if (coords.length === 0) return [];
+        
+        const clustered = [];
+        let currentCluster = [coords[0]];
+        
+        for (let i = 1; i < coords.length; i++) {
+            if (coords[i] - coords[i-1] < tolerance) {
+                currentCluster.push(coords[i]);
+            } else {
+                // Finish current cluster with average value
+                const avg = currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length;
+                clustered.push(avg);
+                currentCluster = [coords[i]];
+            }
+        }
+        
+        // Don't forget the last cluster
+        if (currentCluster.length > 0) {
+            const avg = currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length;
+            clustered.push(avg);
+        }
+        
+        return clustered;
     }
 
     calculateBounds() {
@@ -604,6 +717,16 @@ World Bounds:
   X: ${this.worldMinX.toFixed(2)} to ${this.worldMaxX.toFixed(2)}
   Y: ${this.worldMinY.toFixed(2)} to ${this.worldMaxY.toFixed(2)}`;
 
+        // Add grid structure info
+        if (this.gridInfo) {
+            text += `\n\n=== Grid Structure ===
+X grid lines: ${this.gridInfo.xLines}
+Y grid lines: ${this.gridInfo.yLines}
+Avg X spacing: ${this.gridInfo.avgXSpacing.toFixed(3)} m
+Avg Y spacing: ${this.gridInfo.avgYSpacing.toFixed(3)} m
+Grid nodes: ${this.gridInfo.totalNodes}`;
+        }
+
         // Add extended edge analysis
         if (this.extendedAnalysis) {
             const a = this.extendedAnalysis;
@@ -637,8 +760,8 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
             return;
         }
 
-        // Draw light grid
-        this.drawGrid();
+        // Draw underlying node grid structure
+        this.drawUnderlyingGrid();
 
         // Draw edges
         this.drawEdges();
@@ -656,9 +779,10 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
     }
 
     drawGrid() {
+        // Light background grid at 10m intervals
         const gridSpacing = 10;
         
-        this.ctx.strokeStyle = '#eee';
+        this.ctx.strokeStyle = '#f0f0f0';
         this.ctx.lineWidth = 1;
 
         // Vertical lines
@@ -679,6 +803,79 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
             this.ctx.moveTo(pos.x, pos.y);
             this.ctx.lineTo(posEnd.x, posEnd.y);
             this.ctx.stroke();
+        }
+    }
+
+    drawUnderlyingGrid() {
+        if (!this.showUnderlyingGrid || this.gridX.length === 0 || this.gridY.length === 0) return;
+
+        // Draw grid lines where nodes actually exist
+        this.ctx.strokeStyle = 'rgba(70, 130, 180, 0.25)';
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([4, 4]);
+
+        // Draw vertical grid lines at detected X positions
+        for (const x of this.gridX) {
+            const pos = this.worldToCanvas(x, this.worldMinY - 2);
+            const posEnd = this.worldToCanvas(x, this.worldMaxY + 2);
+            this.ctx.beginPath();
+            this.ctx.moveTo(pos.x, pos.y);
+            this.ctx.lineTo(posEnd.x, posEnd.y);
+            this.ctx.stroke();
+        }
+
+        // Draw horizontal grid lines at detected Y positions
+        for (const y of this.gridY) {
+            const pos = this.worldToCanvas(this.worldMinX - 2, y);
+            const posEnd = this.worldToCanvas(this.worldMaxX + 2, y);
+            this.ctx.beginPath();
+            this.ctx.moveTo(pos.x, pos.y);
+            this.ctx.lineTo(posEnd.x, posEnd.y);
+            this.ctx.stroke();
+        }
+
+        this.ctx.setLineDash([]);
+
+        // Draw grid intersection points (potential node positions)
+        this.ctx.fillStyle = 'rgba(70, 130, 180, 0.12)';
+        for (const x of this.gridX) {
+            for (const y of this.gridY) {
+                const pos = this.worldToCanvas(x, y);
+                this.ctx.beginPath();
+                this.ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        }
+
+        // Highlight actual node positions with rings
+        this.ctx.strokeStyle = 'rgba(30, 100, 170, 0.5)';
+        this.ctx.lineWidth = 2;
+        
+        for (const node of this.gridNodes) {
+            const pos = this.worldToCanvas(node.x, node.y);
+            this.ctx.beginPath();
+            this.ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            this.ctx.stroke();
+        }
+
+        // Draw grid coordinate labels at edges when zoomed in enough
+        if (this.zoomLevel >= 1.5) {
+            this.ctx.font = '9px sans-serif';
+            this.ctx.fillStyle = 'rgba(70, 130, 180, 0.7)';
+            this.ctx.textAlign = 'center';
+            
+            // X labels at bottom
+            for (const x of this.gridX) {
+                const pos = this.worldToCanvas(x, this.worldMinY);
+                this.ctx.fillText(x.toFixed(1), pos.x, pos.y + 12);
+            }
+            
+            // Y labels at left
+            this.ctx.textAlign = 'right';
+            for (const y of this.gridY) {
+                const pos = this.worldToCanvas(this.worldMinX, y);
+                this.ctx.fillText(y.toFixed(1), pos.x - 4, pos.y + 3);
+            }
         }
     }
 
@@ -833,4 +1030,5 @@ ${a.improvement > 0 ? `✓ ${a.improvement.toFixed(1)}% improvement` : `✗ No i
 document.addEventListener('DOMContentLoaded', () => {
     window.edgeViewer = new EdgeViewer();
 });
+
 

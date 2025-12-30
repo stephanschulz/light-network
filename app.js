@@ -20,8 +20,12 @@ class NetworkVisualizer {
         this.edgeFlipMode = false;
         this.yFlipped = false;
         this.nodeDiameterOffset = 0.5; // meters
+        this.wattsPerMeter = 12; // watts per meter of LED strip
+        this.voltage = 120; // voltage for amp calculation
+        this.ledRingLength = 2.5; // meters per LED ring around each node
         this.showEdgeLengths = false;
         this.showNodeTotalLength = false;
+        this.showLedRings = false;
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -142,6 +146,11 @@ class NetworkVisualizer {
 
         document.getElementById('showNodeTotalLength').addEventListener('change', (e) => {
             this.showNodeTotalLength = e.target.checked;
+            this.drawNetwork();
+        });
+
+        document.getElementById('showLedRings').addEventListener('change', (e) => {
+            this.showLedRings = e.target.checked;
             this.drawNetwork();
         });
 
@@ -373,8 +382,9 @@ class NetworkVisualizer {
             console.log(`Node ${this.nodeIds.get(oldEnd)} is now a smart node (${oldEndOutputs} outputs)`);
         }
 
+        const edgeWatts = this.calculateEdgePower(edge);
         console.log(`Flipped edge ${edge.id}: ${oldStart} → ${oldEnd} becomes ${oldEnd} → ${oldStart}`);
-        console.log(`Row power: Y=${oldStartY.toFixed(1)} now ${rowPower.get(oldStartY)}A, Y=${newStartY.toFixed(1)} now ${rowPower.get(newStartY)}A`);
+        console.log(`Edge power: ${edgeWatts.toFixed(1)}W moved from row Y=${oldStartY.toFixed(1)} to Y=${newStartY.toFixed(1)}`);
         console.log(`Smart nodes: ${artnetNodes.length}`);
 
         // Update display
@@ -713,6 +723,13 @@ class NetworkVisualizer {
         return this.calculateDistance(edge.start, edge.end);
     }
 
+    calculateEdgePower(edge) {
+        // Calculate power in watts for an edge (adjusted length * watts per meter)
+        const length = this.calculateEdgeLength(edge);
+        const adjustedLength = Math.max(0, length - this.nodeDiameterOffset);
+        return adjustedLength * this.wattsPerMeter;
+    }
+
     calculateLengthGroups() {
         const lengthCounts = new Map();
 
@@ -795,11 +812,11 @@ class NetworkVisualizer {
         this.offsetX = (this.canvas.width - worldWidth * this.scale) / 2;
         this.offsetY = (this.canvas.height - worldHeight * this.scale) / 2;
 
-        // Draw in correct order
+        // Draw in correct order (arrows behind labels/numbers)
         if (this.showGrid) this.drawGrid();
         this.drawEdges();
-        this.drawNodes();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawArrows();
+        this.drawNodes();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawSmartNodeLabels();
         if (this.showNodeTotalLength && this.artnetOptimization) this.drawNodeTotalLengths();
         this.drawWindowFrame();
@@ -892,6 +909,18 @@ class NetworkVisualizer {
 
             const isArtnet = this.showArtnetNodes && artnetSet.has(nodeStr);
             const isIntercom = this.intercomNodes.has(nodeStr);
+
+            // Draw LED ring circle if enabled (1.5x larger than smart node diameter)
+            if (this.showLedRings) {
+                const ledRingDiameter = this.nodeDiameter * 1.5;
+                const ledRingRadius = (ledRingDiameter / 2) * this.scale;
+                
+                this.ctx.beginPath();
+                this.ctx.arc(pos.x, pos.y, ledRingRadius, 0, Math.PI * 2);
+                this.ctx.strokeStyle = '#ff00ff'; // Magenta for LED ring
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            }
 
             // Use different diameters: 1.0 for normal nodes, nodeDiameter for ArtNet nodes
             const diameter = isArtnet ? this.nodeDiameter : 1.0;
@@ -1213,42 +1242,89 @@ class NetworkVisualizer {
     }
 
     drawRowPower() {
-        // Display power consumption per row in Amps
-        // Each edge data START adds 1 amp to the row where the ArtNet node is located
-        // Optimization tries to balance amps across rows and keep under 20A limit
-        if (!this.artnetOptimization || !this.artnetOptimization.rowPower) return;
+        // Display power consumption per row in Watts (based on edge length * 12W/m)
+        // Power = (edge length - node diameter) * wattsPerMeter
+        if (!this.artnetOptimization || !this.artnetOptimization.edgeDirections) return;
 
         const maxAmps = 20;  // Maximum 20 amps per row
+        
         this.ctx.font = `${this.fontSize * 0.7}px Arial`;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
 
-        // Aggregate power by binned Y coordinates to avoid overlapping text
-        const binnedPower = new Map();
-        const binTolerance = 0.5; // Group Y values within 0.5m
-
-        for (const [y, amps] of this.artnetOptimization.rowPower.entries()) {
-            // Find the closest binned row Y
-            let binnedY = y;
-            if (this.gridRowsY && this.gridRowsY.length > 0) {
-                let minDist = Infinity;
-                for (const gridY of this.gridRowsY) {
-                    const dist = Math.abs(y - gridY);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        binnedY = gridY;
+        // Calculate actual watts per row based on edge lengths
+        const rowWatts = new Map();
+        const rowNodes = new Map(); // Track unique nodes per row for LED ring power
+        
+        for (const edge of this.edges) {
+            const dir = this.artnetOptimization.edgeDirections.get(edge);
+            if (dir && dir.start) {
+                const startNode = this.parseNode(dir.start);
+                const watts = this.calculateEdgePower(edge);
+                
+                // Find the closest binned row Y
+                let binnedY = startNode.y;
+                if (this.gridRowsY && this.gridRowsY.length > 0) {
+                    let minDist = Infinity;
+                    for (const gridY of this.gridRowsY) {
+                        const dist = Math.abs(startNode.y - gridY);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            binnedY = gridY;
+                        }
                     }
                 }
+                
+                rowWatts.set(binnedY, (rowWatts.get(binnedY) || 0) + watts);
+                
+                // Track nodes per row for LED ring power
+                if (!rowNodes.has(binnedY)) {
+                    rowNodes.set(binnedY, new Set());
+                }
+                rowNodes.get(binnedY).add(dir.start);
             }
+        }
+        
+        // Add LED ring power for all nodes if enabled (2.5m * 12W/m = 30W per node)
+        if (this.showLedRings) {
+            const ledRingWatts = this.ledRingLength * this.wattsPerMeter;
             
-            // Aggregate amps for this binned Y
-            binnedPower.set(binnedY, (binnedPower.get(binnedY) || 0) + amps);
+            // Add power for all nodes (smart, normal, and end nodes) in each row
+            for (const nodeStr of this.nodes) {
+                const node = this.parseNode(nodeStr);
+                
+                // Find the closest binned row Y
+                let binnedY = node.y;
+                if (this.gridRowsY && this.gridRowsY.length > 0) {
+                    let minDist = Infinity;
+                    for (const gridY of this.gridRowsY) {
+                        const dist = Math.abs(node.y - gridY);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            binnedY = gridY;
+                        }
+                    }
+                }
+                
+                rowWatts.set(binnedY, (rowWatts.get(binnedY) || 0) + ledRingWatts);
+            }
         }
 
-        for (const [y, amps] of binnedPower.entries()) {
-            const pos = this.worldToCanvas(this.worldMaxX, y);
+        // Draw header at top showing voltage reference
+        const headerPos = this.worldToCanvas(this.worldMaxX, this.worldMaxY);
+        this.ctx.fillStyle = '#000000';
+        this.ctx.font = `bold ${this.fontSize * 0.6}px Arial`;
+        this.ctx.fillText(`@${this.voltage}V`, headerPos.x + 15, headerPos.y - 20);
+        this.ctx.fillText(`Amps`, headerPos.x + 15, headerPos.y - 8);
+        this.ctx.fillText(`Watts`, headerPos.x + 55, headerPos.y - 8);
 
-            // Color code: Green (OK), Orange (warning >18A), Red (violation >20A)
+        this.ctx.font = `${this.fontSize * 0.7}px Arial`;
+
+        for (const [y, watts] of rowWatts.entries()) {
+            const pos = this.worldToCanvas(this.worldMaxX, y);
+            const amps = watts / this.voltage;
+
+            // Color code: Green (OK), Orange (warning >90%), Red (violation >100%)
             if (amps > maxAmps) {
                 this.ctx.fillStyle = '#ff0000';  // Red - over limit
             } else if (amps > maxAmps * 0.9) {
@@ -1257,7 +1333,10 @@ class NetworkVisualizer {
                 this.ctx.fillStyle = '#009600';  // Green - OK
             }
 
-            this.ctx.fillText(`${amps}A`, pos.x + 15, pos.y);
+            // Draw amps column
+            this.ctx.fillText(`${amps.toFixed(1)}A`, pos.x + 15, pos.y);
+            // Draw watts column
+            this.ctx.fillText(`${watts.toFixed(0)}W`, pos.x + 55, pos.y);
         }
     }
 
@@ -2025,19 +2104,31 @@ class NetworkVisualizer {
     }
 
     updateArtNetInfo() {
-        // Calculate total power
-        let totalPower = 0;
-        if (this.artnetOptimization && this.artnetOptimization.rowPower) {
-            for (const amps of this.artnetOptimization.rowPower.values()) {
-                totalPower += amps;
+        // Calculate total power based on edge lengths (12W/m * adjusted length)
+        let totalWatts = 0;
+        
+        if (this.artnetOptimization && this.artnetOptimization.edgeDirections) {
+            for (const edge of this.edges) {
+                const dir = this.artnetOptimization.edgeDirections.get(edge);
+                if (dir && dir.start) {
+                    totalWatts += this.calculateEdgePower(edge);
+                }
             }
         }
+        
+        // Add LED ring power if enabled (2.5m * 12W/m = 30W per node)
+        if (this.showLedRings) {
+            const ledRingWatts = this.ledRingLength * this.wattsPerMeter;
+            totalWatts += this.nodes.size * ledRingWatts;
+        }
+        
+        const totalAmps = totalWatts / this.voltage;
 
         // Network Info at top
         let info = `Network Info\n`;
         info += `Nodes: ${this.nodes.size}\n`;
         info += `Edges: ${this.edges.length}\n`;
-        info += `Total Power: ${totalPower}A\n`;
+        info += `Total Power: ${totalWatts.toFixed(0)}W (${totalAmps.toFixed(1)}A)\n`;
 
         // Add optimization info if available
         if (this.artnetOptimization) {

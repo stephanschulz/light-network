@@ -19,7 +19,9 @@ class NetworkVisualizer {
         this.intercomEditMode = false;
         this.edgeFlipMode = false;
         this.yFlipped = false;
-        this.nodeCircumference = 0.5; // meters
+        this.nodeDiameterOffset = 0.5; // meters
+        this.showEdgeLengths = false;
+        this.showNodeTotalLength = false;
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -125,9 +127,22 @@ class NetworkVisualizer {
             this.drawNetwork();
         });
 
-        document.getElementById('nodeCircumference').addEventListener('input', (e) => {
-            this.nodeCircumference = parseFloat(e.target.value);
-            document.getElementById('nodeCircumferenceValue').textContent = this.nodeCircumference.toFixed(2);
+        document.getElementById('nodeDiameterOffset').addEventListener('input', (e) => {
+            this.nodeDiameterOffset = parseFloat(e.target.value);
+            document.getElementById('nodeDiameterOffsetValue').textContent = this.nodeDiameterOffset.toFixed(2);
+            if (this.showEdgeLengths) {
+                this.drawNetwork();
+            }
+        });
+
+        document.getElementById('showEdgeLengths').addEventListener('change', (e) => {
+            this.showEdgeLengths = e.target.checked;
+            this.drawNetwork();
+        });
+
+        document.getElementById('showNodeTotalLength').addEventListener('change', (e) => {
+            this.showNodeTotalLength = e.target.checked;
+            this.drawNetwork();
         });
 
         // Buttons
@@ -786,6 +801,7 @@ class NetworkVisualizer {
         this.drawNodes();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawArrows();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawSmartNodeLabels();
+        if (this.showNodeTotalLength && this.artnetOptimization) this.drawNodeTotalLengths();
         this.drawWindowFrame();
         this.drawGridLabels();
         if (this.artnetOptimization) this.drawRowPower();
@@ -842,6 +858,27 @@ class NetworkVisualizer {
                 this.ctx.moveTo(startPos.x, startPos.y);
                 this.ctx.lineTo(endPos.x, endPos.y);
                 this.ctx.stroke();
+            }
+
+            // Draw edge length labels if enabled
+            if (this.showEdgeLengths) {
+                const midX = (startPos.x + endPos.x) / 2;
+                const midY = (startPos.y + endPos.y) / 2;
+                const adjustedLength = Math.max(0, edgeLength - this.nodeDiameterOffset);
+                
+                this.ctx.font = `${Math.max(9, this.fontSize * 0.5)}px Arial`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                
+                // Background for readability
+                const text = `${rounded.toFixed(2)} (${adjustedLength.toFixed(2)})`;
+                const textWidth = this.ctx.measureText(text).width;
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                this.ctx.fillRect(midX - textWidth/2 - 2, midY - 7, textWidth + 4, 14);
+                
+                // Text: raw (adjusted)
+                this.ctx.fillStyle = '#333';
+                this.ctx.fillText(text, midX, midY);
             }
         }
     }
@@ -905,6 +942,51 @@ class NetworkVisualizer {
             this.ctx.textBaseline = 'middle';
             // Position text to the right of the rectangle
             this.ctx.fillText(arrowCount.toString(), pos.x + rectSize/2 + 3, pos.y);
+        }
+    }
+
+    drawNodeTotalLengths() {
+        // Draw total adjusted edge length for each smart node (sum of outgoing edges)
+        if (!this.artnetOptimization) return;
+        
+        const artnetSet = new Set(this.artnetOptimization.artnetNodes);
+        
+        for (const nodeStr of artnetSet) {
+            // Calculate total adjusted length of edges starting from this node
+            let totalLength = 0;
+            let edgeCount = 0;
+            
+            for (const edge of this.edges) {
+                const dir = this.artnetOptimization.edgeDirections.get(edge);
+                if (dir && dir.start === nodeStr) {
+                    const edgeLength = this.calculateEdgeLength(edge);
+                    const adjustedLength = Math.max(0, edgeLength - this.nodeDiameterOffset);
+                    totalLength += adjustedLength;
+                    edgeCount++;
+                }
+            }
+            
+            if (edgeCount === 0) continue;
+            
+            const node = this.parseNode(nodeStr);
+            const pos = this.worldToCanvas(node.x, node.y);
+            
+            // Draw total length below the node
+            this.ctx.font = `${Math.max(9, this.fontSize * 0.6)}px Arial`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'top';
+            
+            const text = `${totalLength.toFixed(1)}m`;
+            const textWidth = this.ctx.measureText(text).width;
+            
+            // Background for readability
+            const yOffset = this.nodeDiameter * this.scale / 2 + 2;
+            this.ctx.fillStyle = 'rgba(255, 255, 200, 0.9)';
+            this.ctx.fillRect(pos.x - textWidth/2 - 2, pos.y + yOffset, textWidth + 4, 12);
+            
+            // Text
+            this.ctx.fillStyle = '#006600';
+            this.ctx.fillText(text, pos.x, pos.y + yOffset + 1);
         }
     }
 
@@ -2061,13 +2143,13 @@ class NetworkVisualizer {
         // Sort by length
         const sortedLengths = Array.from(lengthData.entries()).sort((a, b) => a[0] - b[0]);
         
-        // Build CSV with adjusted length (minus node circumference)
-        const circumference = this.nodeCircumference;
+        // Build CSV with adjusted length (minus node diameter)
+        const diameter = this.nodeDiameterOffset;
         let csv = `Length_m,Length_Adjusted_m,Total_Count,Normal_Count,Intercom_Count,Normal_Edge_IDs,Intercom_Edge_IDs\n`;
-        csv += `# Node Circumference: ${circumference.toFixed(2)}m (subtracted from Length to get Length_Adjusted)\n`;
+        csv += `# Node Diameter: ${diameter.toFixed(2)}m (subtracted from Length to get Length_Adjusted)\n`;
         
         for (const [length, data] of sortedLengths) {
-            const adjustedLength = Math.max(0, length - circumference); // Don't go negative
+            const adjustedLength = Math.max(0, length - diameter); // Don't go negative
             const normalCount = data.total - data.intercom;
             const normalIds = data.normalEdgeIds.join(';');
             const intercomIds = data.intercomEdgeIds.join(';');
@@ -2080,10 +2162,10 @@ class NetworkVisualizer {
         const totalNormal = totalEdges - totalIntercom;
         csv += `\nSUMMARY,,${totalEdges},${totalNormal},${totalIntercom},,\n`;
         csv += `Unique_Lengths,,${sortedLengths.length},,,,\n`;
-        csv += `Node_Circumference,${circumference.toFixed(2)}m,,,,,\n`;
+        csv += `Node_Diameter,${diameter.toFixed(2)}m,,,,,\n`;
         
         this.downloadCSV('edge_length_summary.csv', csv);
-        console.log(`Exported length summary: ${sortedLengths.length} unique lengths, ${totalEdges} total edges (${totalIntercom} intercom), circumference: ${circumference}m`);
+        console.log(`Exported length summary: ${sortedLengths.length} unique lengths, ${totalEdges} total edges (${totalIntercom} intercom), diameter: ${diameter}m`);
     }
 
     downloadCSV(filename, content) {

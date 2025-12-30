@@ -816,6 +816,7 @@ class NetworkVisualizer {
         if (this.showGrid) this.drawGrid();
         this.drawEdges();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawArrows();
+        this.drawEdgeLengthLabels();
         this.drawNodes();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawSmartNodeLabels();
         if (this.showNodeTotalLength && this.artnetOptimization) this.drawNodeTotalLengths();
@@ -877,26 +878,38 @@ class NetworkVisualizer {
                 this.ctx.stroke();
             }
 
-            // Draw edge length labels if enabled
-            if (this.showEdgeLengths) {
-                const midX = (startPos.x + endPos.x) / 2;
-                const midY = (startPos.y + endPos.y) / 2;
-                const adjustedLength = Math.max(0, edgeLength - this.nodeDiameterOffset);
-                
-                this.ctx.font = `${Math.max(9, this.fontSize * 0.5)}px Arial`;
-                this.ctx.textAlign = 'center';
-                this.ctx.textBaseline = 'middle';
-                
-                // Background for readability
-                const text = `${rounded.toFixed(2)} (${adjustedLength.toFixed(2)})`;
-                const textWidth = this.ctx.measureText(text).width;
-                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-                this.ctx.fillRect(midX - textWidth/2 - 2, midY - 7, textWidth + 4, 14);
-                
-                // Text: raw (adjusted)
-                this.ctx.fillStyle = '#333';
-                this.ctx.fillText(text, midX, midY);
-            }
+        }
+    }
+
+    drawEdgeLengthLabels() {
+        if (!this.showEdgeLengths) return;
+        
+        for (const edge of this.edges) {
+            const start = this.parseNode(edge.start);
+            const end = this.parseNode(edge.end);
+            const startPos = this.worldToCanvas(start.x, start.y);
+            const endPos = this.worldToCanvas(end.x, end.y);
+
+            const edgeLength = this.calculateEdgeLength(edge);
+            const rounded = Math.round(edgeLength * 100) / 100;
+            const adjustedLength = Math.max(0, edgeLength - this.nodeDiameterOffset);
+            
+            const midX = (startPos.x + endPos.x) / 2;
+            const midY = (startPos.y + endPos.y) / 2;
+            
+            this.ctx.font = `${Math.max(9, this.fontSize * 0.5)}px Arial`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            
+            // Background for readability
+            const text = `${rounded.toFixed(2)} (${adjustedLength.toFixed(2)})`;
+            const textWidth = this.ctx.measureText(text).width;
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            this.ctx.fillRect(midX - textWidth/2 - 2, midY - 7, textWidth + 4, 14);
+            
+            // Text: raw (adjusted)
+            this.ctx.fillStyle = '#333';
+            this.ctx.fillText(text, midX, midY);
         }
     }
 

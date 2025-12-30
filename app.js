@@ -833,7 +833,7 @@ class NetworkVisualizer {
 
             const edgeLength = this.calculateEdgeLength(edge);
             const rounded = Math.round(edgeLength * 100) / 100;
-            const isHighlighted = selectedLength !== null && Math.abs(rounded - selectedLength) < 0.01;
+            const isHighlighted = selectedLength !== null && rounded === selectedLength;
 
             if (this.showEdges || isHighlighted) {
                 this.ctx.beginPath();

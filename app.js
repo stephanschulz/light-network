@@ -45,6 +45,14 @@ class NetworkVisualizer {
         this.artnetOptimization = null;
         this.lengthGroups = [];
 
+        // Cable routing points
+        this.cableEdgePoints = [];       // 8 edge points (2 per stage side)
+        this.cableIntermediatePoints = []; // 8 intermediate points (2 each on col 1, col 17, row A, row M)
+        this.draggingPoint = null;
+        this.dragOffset = { x: 0, y: 0 };
+        this.hoveredPoint = null;
+        this.wasDragging = false;
+
         // Grid data
         this.gridPoints = [];
         this.gridColumnsX = [];  // Binned X coordinates
@@ -185,9 +193,18 @@ class NetworkVisualizer {
             this.drawNetwork();
         });
 
-        // Mouse events for tooltips
+        document.getElementById('resetCablePointsBtn').addEventListener('click', () => {
+            this.cableEdgePoints = [];
+            this.cableIntermediatePoints = [];
+            this.drawNetwork();
+        });
+
+        // Mouse events for tooltips and dragging
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        
+        this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+        this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        this.canvas.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
+
         // Click to toggle intercom nodes
         this.canvas.addEventListener('click', (e) => this.handleNodeClick(e));
 
@@ -226,6 +243,12 @@ class NetworkVisualizer {
     }
 
     handleNodeClick(e) {
+        // Prevent click actions after a drag operation
+        if (this.wasDragging) {
+            this.wasDragging = false;
+            return;
+        }
+
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -450,6 +473,8 @@ class NetworkVisualizer {
         this.gridPoints = [];
         this.gridColumnsX = [];
         this.gridRowsY = [];
+        this.cableEdgePoints = [];
+        this.cableIntermediatePoints = [];
 
         // Parse edges
         for (let i = 1; i < lines.length; i++) {
@@ -779,7 +804,12 @@ class NetworkVisualizer {
 
     canvasToWorld(canvasX, canvasY) {
         const x = (canvasX - this.offsetX) / this.scale + this.worldMinX;
-        const y = (canvasY - this.offsetY) / this.scale + this.worldMinY;
+        let y;
+        if (this.yFlipped) {
+            y = this.worldMaxY - (canvasY - this.offsetY) / this.scale;
+        } else {
+            y = (canvasY - this.offsetY) / this.scale + this.worldMinY;
+        }
         return { x, y };
     }
 
@@ -811,6 +841,11 @@ class NetworkVisualizer {
         // Center the network
         this.offsetX = (this.canvas.width - worldWidth * this.scale) / 2;
         this.offsetY = (this.canvas.height - worldHeight * this.scale) / 2;
+
+        // Initialize cable routing points if not yet done
+        if (this.cableEdgePoints.length === 0 && this.gridColumnsX.length > 0) {
+            this.initCableRoutingPoints();
+        }
 
         // Draw in correct order (arrows behind labels/numbers)
         if (this.showGrid) this.drawGrid();
@@ -1353,87 +1388,269 @@ class NetworkVisualizer {
         }
     }
 
-    drawDataCables() {
-        // Hub positions at window edge centers
-        const centerX = (this.worldMinX + this.worldMaxX) / 2;
-        const centerY = (this.worldMinY + this.worldMaxY) / 2;
+    initCableRoutingPoints() {
+        // 8 edge points: 2 per stage side at 1/3 and 2/3 positions
+        const minX = this.worldMinX;
+        const maxX = this.worldMaxX;
+        const minY = this.worldMinY;
+        const maxY = this.worldMaxY;
+        const w = maxX - minX;
+        const h = maxY - minY;
 
-        const hubPositions = [
-            { x: this.worldMinX, y: centerY },
-            { x: this.worldMaxX, y: centerY },
-            { x: centerX, y: this.worldMinY },
-            { x: centerX, y: this.worldMaxY }
+        this.cableEdgePoints = [
+            // Top side (2 points)
+            { id: 'et0', x: minX + w / 3, y: minY, side: 'top', type: 'edge' },
+            { id: 'et1', x: minX + 2 * w / 3, y: minY, side: 'top', type: 'edge' },
+            // Bottom side (2 points)
+            { id: 'eb0', x: minX + w / 3, y: maxY, side: 'bottom', type: 'edge' },
+            { id: 'eb1', x: minX + 2 * w / 3, y: maxY, side: 'bottom', type: 'edge' },
+            // Left side (2 points)
+            { id: 'el0', x: minX, y: minY + h / 3, side: 'left', type: 'edge' },
+            { id: 'el1', x: minX, y: minY + 2 * h / 3, side: 'left', type: 'edge' },
+            // Right side (2 points)
+            { id: 'er0', x: maxX, y: minY + h / 3, side: 'right', type: 'edge' },
+            { id: 'er1', x: maxX, y: minY + 2 * h / 3, side: 'right', type: 'edge' },
         ];
 
-        // Draw hub markers (yellow/orange circles with orange borders)
-        for (const hub of hubPositions) {
-            const pos = this.worldToCanvas(hub.x, hub.y);
-            const radius = (this.nodeDiameter * 0.7) * this.scale;
+        // 8 intermediate points: 2 each on col 1, col 17 (last col), row A (first row), row M (last row)
+        const cols = this.gridColumnsX;
+        const rows = this.gridRowsY;
+        const col1X = cols[0];                         // Column 1
+        const colLastX = cols[cols.length - 1];        // Last column
+        const rowAY = rows[0];                         // Row A
+        const rowLastY = rows[rows.length - 1];        // Last row
 
-            // Yellow fill with orange border
+        this.cableIntermediatePoints = [
+            // On column 1 (left inner edge)
+            { id: 'ic0', x: col1X, y: minY + h / 3, gridLine: 'col1', type: 'intermediate' },
+            { id: 'ic1', x: col1X, y: minY + 2 * h / 3, gridLine: 'col1', type: 'intermediate' },
+            // On last column (right inner edge)
+            { id: 'ic2', x: colLastX, y: minY + h / 3, gridLine: 'colLast', type: 'intermediate' },
+            { id: 'ic3', x: colLastX, y: minY + 2 * h / 3, gridLine: 'colLast', type: 'intermediate' },
+            // On row A (top inner edge)
+            { id: 'ir0', x: minX + w / 3, y: rowAY, gridLine: 'rowA', type: 'intermediate' },
+            { id: 'ir1', x: minX + 2 * w / 3, y: rowAY, gridLine: 'rowA', type: 'intermediate' },
+            // On last row (bottom inner edge)
+            { id: 'ir2', x: minX + w / 3, y: rowLastY, gridLine: 'rowLast', type: 'intermediate' },
+            { id: 'ir3', x: minX + 2 * w / 3, y: rowLastY, gridLine: 'rowLast', type: 'intermediate' },
+        ];
+    }
+
+    computeManhattanCorner(interPt, edgePt) {
+        // For top/bottom edge points: H-then-V → corner at (edgePt.x, interPt.y)
+        // For left/right edge points: V-then-H → corner at (interPt.x, edgePt.y)
+        if (edgePt.side === 'top' || edgePt.side === 'bottom') {
+            return { x: edgePt.x, y: interPt.y };
+        } else {
+            return { x: interPt.x, y: edgePt.y };
+        }
+    }
+
+    drawCablePointMarkers() {
+        // Draw edge points as yellow diamonds
+        for (const pt of this.cableEdgePoints) {
+            const pos = this.worldToCanvas(pt.x, pt.y);
+            const size = 8;
+            const isHovered = this.hoveredPoint === pt;
+            const isDragging = this.draggingPoint === pt;
+
+            this.ctx.save();
+            this.ctx.translate(pos.x, pos.y);
+            this.ctx.rotate(Math.PI / 4);
+
             this.ctx.beginPath();
-            this.ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-            this.ctx.fillStyle = '#ffff00';  // Yellow
+            this.ctx.rect(-size / 2, -size / 2, size, size);
+
+            if (isDragging) {
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.strokeStyle = '#ff0000';
+                this.ctx.lineWidth = 3;
+            } else if (isHovered) {
+                this.ctx.fillStyle = '#ffffaa';
+                this.ctx.strokeStyle = '#ff4500';
+                this.ctx.lineWidth = 3;
+            } else {
+                this.ctx.fillStyle = '#ffff00';
+                this.ctx.strokeStyle = '#ff8c00';
+                this.ctx.lineWidth = 2;
+            }
             this.ctx.fill();
-            this.ctx.strokeStyle = '#ff8c00';  // Dark orange
-            this.ctx.lineWidth = 2;
             this.ctx.stroke();
+            this.ctx.restore();
         }
 
-        // Draw cables
-        this.ctx.strokeStyle = '#ffa500';  // Orange
-        this.ctx.lineWidth = this.lineWidth * 2 * this.scale;
+        // Draw intermediate points as cyan circles
+        for (const pt of this.cableIntermediatePoints) {
+            const pos = this.worldToCanvas(pt.x, pt.y);
+            const radius = 6;
+            const isHovered = this.hoveredPoint === pt;
+            const isDragging = this.draggingPoint === pt;
+
+            this.ctx.beginPath();
+            this.ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+
+            if (isDragging) {
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.strokeStyle = '#ff0000';
+                this.ctx.lineWidth = 3;
+            } else if (isHovered) {
+                this.ctx.fillStyle = '#aaffff';
+                this.ctx.strokeStyle = '#ff4500';
+                this.ctx.lineWidth = 3;
+            } else {
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.strokeStyle = '#ff8c00';
+                this.ctx.lineWidth = 2;
+            }
+            this.ctx.fill();
+            this.ctx.stroke();
+        }
+    }
+
+    drawDataCables() {
+        if (this.cableEdgePoints.length === 0 || this.cableIntermediatePoints.length === 0) return;
 
         let totalCableLength = 0;
+
+        this.ctx.lineWidth = this.lineWidth * 2 * this.scale;
 
         for (const artnetNodeStr of this.artnetOptimization.artnetNodes) {
             const node = this.parseNode(artnetNodeStr);
 
-            // Find closest hub
-            let minDist = Infinity;
-            let closestHub = hubPositions[0];
+            // 1. Find nearest intermediate point (Euclidean)
+            let minInterDist = Infinity;
+            let nearestInter = this.cableIntermediatePoints[0];
 
-            for (const hub of hubPositions) {
-                const dist = Math.sqrt(Math.pow(node.x - hub.x, 2) + Math.pow(node.y - hub.y, 2));
-                if (dist < minDist) {
-                    minDist = dist;
-                    closestHub = hub;
+            for (const ip of this.cableIntermediatePoints) {
+                const d = Math.sqrt((node.x - ip.x) ** 2 + (node.y - ip.y) ** 2);
+                if (d < minInterDist) {
+                    minInterDist = d;
+                    nearestInter = ip;
                 }
             }
 
-            // Draw cable
-            const nodePos = this.worldToCanvas(node.x, node.y);
-            const hubPos = this.worldToCanvas(closestHub.x, closestHub.y);
+            // 2. Find nearest edge point from that intermediate point
+            let minEdgeDist = Infinity;
+            let nearestEdge = this.cableEdgePoints[0];
 
+            for (const ep of this.cableEdgePoints) {
+                const d = Math.sqrt((nearestInter.x - ep.x) ** 2 + (nearestInter.y - ep.y) ** 2);
+                if (d < minEdgeDist) {
+                    minEdgeDist = d;
+                    nearestEdge = ep;
+                }
+            }
+
+            // 3. Compute Manhattan corner
+            const corner = this.computeManhattanCorner(nearestInter, nearestEdge);
+
+            // Convert to canvas coords
+            const nodePos = this.worldToCanvas(node.x, node.y);
+            const interPos = this.worldToCanvas(nearestInter.x, nearestInter.y);
+            const cornerPos = this.worldToCanvas(corner.x, corner.y);
+            const edgePos = this.worldToCanvas(nearestEdge.x, nearestEdge.y);
+
+            // Draw straight line: node → intermediate
+            this.ctx.strokeStyle = '#ffa500';
             this.ctx.beginPath();
             this.ctx.moveTo(nodePos.x, nodePos.y);
-            this.ctx.lineTo(hubPos.x, hubPos.y);
+            this.ctx.lineTo(interPos.x, interPos.y);
             this.ctx.stroke();
 
-            // Draw length label
-            const midX = (nodePos.x + hubPos.x) / 2;
-            const midY = (nodePos.y + hubPos.y) / 2;
+            // Draw Manhattan L-path: intermediate → corner → edge point
+            this.ctx.beginPath();
+            this.ctx.moveTo(interPos.x, interPos.y);
+            this.ctx.lineTo(cornerPos.x, cornerPos.y);
+            this.ctx.lineTo(edgePos.x, edgePos.y);
+            this.ctx.stroke();
 
-            this.ctx.fillStyle = '#000000';
-            this.ctx.font = `${this.fontSize * 0.5}px Arial`;
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(`${minDist.toFixed(1)}m`, midX, midY);
-
-            totalCableLength += minDist;
+            // Accumulate cable length
+            const straightDist = Math.sqrt((node.x - nearestInter.x) ** 2 + (node.y - nearestInter.y) ** 2);
+            const manhattanDist = Math.abs(nearestInter.x - corner.x) + Math.abs(nearestInter.y - corner.y)
+                                + Math.abs(corner.x - nearestEdge.x) + Math.abs(corner.y - nearestEdge.y);
+            totalCableLength += straightDist + manhattanDist;
         }
+
+        // Draw all 16 markers on top of cables
+        this.drawCablePointMarkers();
 
         document.getElementById('cableInfo').textContent = `Total Cable Length: ${totalCableLength.toFixed(2)}m`;
     }
 
     // === MOUSE INTERACTION === //
 
+    handleMouseDown(e) {
+        if (!this.showDataCables) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        const hitRadius = 12;
+
+        const allPoints = [...this.cableEdgePoints, ...this.cableIntermediatePoints];
+        for (const pt of allPoints) {
+            const pos = this.worldToCanvas(pt.x, pt.y);
+            const dist = Math.sqrt((canvasX - pos.x) ** 2 + (canvasY - pos.y) ** 2);
+            if (dist <= hitRadius) {
+                this.draggingPoint = pt;
+                const world = this.canvasToWorld(canvasX, canvasY);
+                this.dragOffset = { x: pt.x - world.x, y: pt.y - world.y };
+                this.canvas.style.cursor = 'grabbing';
+                e.preventDefault();
+                return;
+            }
+        }
+    }
+
+    handleMouseUp(e) {
+        if (this.draggingPoint) {
+            this.wasDragging = true;
+            this.draggingPoint = null;
+            this.canvas.style.cursor = this.hoveredPoint ? 'grab' : 'default';
+            if (this.intercomEditMode) this.canvas.style.cursor = 'crosshair';
+            if (this.edgeFlipMode) this.canvas.style.cursor = 'pointer';
+        }
+    }
+
     handleMouseMove(e) {
         const rect = this.canvas.getBoundingClientRect();
         const canvasX = e.clientX - rect.left;
         const canvasY = e.clientY - rect.top;
 
-        // Find closest node
+        // Handle dragging cable routing points
+        if (this.draggingPoint) {
+            const world = this.canvasToWorld(canvasX, canvasY);
+            this.draggingPoint.x = world.x + this.dragOffset.x;
+            this.draggingPoint.y = world.y + this.dragOffset.y;
+            this.drawNetwork();
+            return;
+        }
+
+        // Handle hover detection for cable routing points
+        if (this.showDataCables) {
+            const hitRadius = 12;
+            let foundHover = null;
+            const allPoints = [...this.cableEdgePoints, ...this.cableIntermediatePoints];
+            for (const pt of allPoints) {
+                const pos = this.worldToCanvas(pt.x, pt.y);
+                const dist = Math.sqrt((canvasX - pos.x) ** 2 + (canvasY - pos.y) ** 2);
+                if (dist <= hitRadius) {
+                    foundHover = pt;
+                    break;
+                }
+            }
+            if (foundHover !== this.hoveredPoint) {
+                this.hoveredPoint = foundHover;
+                if (foundHover) {
+                    this.canvas.style.cursor = 'grab';
+                } else if (!this.intercomEditMode && !this.edgeFlipMode) {
+                    this.canvas.style.cursor = 'default';
+                }
+                this.drawNetwork();
+            }
+            if (foundHover) return; // Don't show node tooltips when hovering cable points
+        }
+
+        // Find closest node for tooltip
         let closestNode = null;
         let minDist = Infinity;
 

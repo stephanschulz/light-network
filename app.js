@@ -39,6 +39,7 @@ class NetworkVisualizer {
         this.showDataCables = false;
         this.showGrid = false;
         this.showEdges = true;
+        this.showNodeIds = false;
         this.selectedLengthGroup = -1;
 
         // Optimization results
@@ -57,6 +58,7 @@ class NetworkVisualizer {
         this.gridPoints = [];
         this.gridColumnsX = [];  // Binned X coordinates
         this.gridRowsY = [];     // Binned Y coordinates
+        this.nodeGridLabels = new Map(); // nodeStr → "A2", "B5", etc.
 
         // Transform for coordinate system
         this.scale = 1;
@@ -125,6 +127,11 @@ class NetworkVisualizer {
 
         document.getElementById('showGrid').addEventListener('change', (e) => {
             this.showGrid = e.target.checked;
+            this.drawNetwork();
+        });
+
+        document.getElementById('showNodeIds').addEventListener('change', (e) => {
+            this.showNodeIds = e.target.checked;
             this.drawNetwork();
         });
 
@@ -398,7 +405,7 @@ class NetworkVisualizer {
             const idx = artnetNodes.indexOf(oldStart);
             if (idx !== -1) {
                 artnetNodes.splice(idx, 1);
-                console.log(`Node ${this.nodeIds.get(oldStart)} is no longer a smart node (0 outputs)`);
+                console.log(`Node ${this.getNodeLabel(oldStart)} is no longer a smart node (0 outputs)`);
             }
         }
 
@@ -406,7 +413,7 @@ class NetworkVisualizer {
         const oldEndOutputs = outputs.get(oldEnd) || 0;
         if (oldEndOutputs > 0 && !artnetNodes.includes(oldEnd)) {
             artnetNodes.push(oldEnd);
-            console.log(`Node ${this.nodeIds.get(oldEnd)} is now a smart node (${oldEndOutputs} outputs)`);
+            console.log(`Node ${this.getNodeLabel(oldEnd)} is now a smart node (${oldEndOutputs} outputs)`);
         }
 
         const edgeWatts = this.calculateEdgePower(edge);
@@ -479,6 +486,7 @@ class NetworkVisualizer {
         this.gridRowsY = [];
         this.cableEdgePoints = [];
         this.cableIntermediatePoints = [];
+        this.nodeGridLabels = new Map();
 
         // Parse edges
         for (let i = 1; i < lines.length; i++) {
@@ -599,6 +607,33 @@ class NetworkVisualizer {
         for (const y of sortedY) {
             for (const x of sortedX) {
                 this.gridPoints.push({ x, y });
+            }
+        }
+
+        // Compute grid labels (e.g. "A2") for every node
+        this.nodeGridLabels = new Map();
+        const gridTol = 0.5; // tolerance for matching node to grid position
+        for (const nodeStr of this.nodes) {
+            const node = this.parseNode(nodeStr);
+            // Find closest column
+            let colIdx = -1, minColDist = Infinity;
+            for (let i = 0; i < sortedX.length; i++) {
+                const d = Math.abs(node.x - sortedX[i]);
+                if (d < minColDist) { minColDist = d; colIdx = i; }
+            }
+            // Find closest row
+            let rowIdx = -1, minRowDist = Infinity;
+            for (let i = 0; i < sortedY.length; i++) {
+                const d = Math.abs(node.y - sortedY[i]);
+                if (d < minRowDist) { minRowDist = d; rowIdx = i; }
+            }
+            if (minColDist < gridTol && minRowDist < gridTol) {
+                const rowLetter = rowIdx < 26 ? String.fromCharCode(65 + rowIdx) : 'A' + String.fromCharCode(65 + rowIdx - 26);
+                const colNumber = colIdx + 1;
+                this.nodeGridLabels.set(nodeStr, `${rowLetter}${colNumber}`);
+            } else {
+                // Off-grid node: fall back to numeric ID
+                this.nodeGridLabels.set(nodeStr, `#${this.nodeIds.get(nodeStr)}`);
             }
         }
 
@@ -733,6 +768,10 @@ class NetworkVisualizer {
         document.getElementById('showArtnetNodes').checked = true;
     }
 
+    getNodeLabel(nodeStr) {
+        return this.nodeGridLabels.get(nodeStr) || `#${this.nodeIds.get(nodeStr) || '?'}`;
+    }
+
     parseNode(nodeStr) {
         const [x, y, z] = nodeStr.split(',').map(parseFloat);
         return { x, y, z };
@@ -857,6 +896,7 @@ class NetworkVisualizer {
         if (this.showArtnetNodes && this.artnetOptimization) this.drawArrows();
         this.drawEdgeLengthLabels();
         this.drawNodes();
+        if (this.showNodeIds) this.drawNodeIds();
         if (this.showArtnetNodes && this.artnetOptimization) this.drawSmartNodeLabels();
         if (this.showNodeTotalLength && this.artnetOptimization) this.drawNodeTotalLengths();
         this.drawWindowFrame();
@@ -1000,6 +1040,31 @@ class NetworkVisualizer {
                 this.ctx.lineWidth = 2;
                 this.ctx.strokeRect(pos.x - rectSize/2, pos.y - rectSize/2, rectSize, rectSize);
             }
+        }
+    }
+
+    drawNodeIds() {
+        // Draw grid-based ID labels for all nodes (smart and normal)
+        const artnetSet = this.artnetOptimization ? new Set(this.artnetOptimization.artnetNodes) : new Set();
+
+        this.ctx.font = `${Math.max(8, this.fontSize * 0.5)}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'bottom';
+
+        for (const nodeStr of this.nodes) {
+            const node = this.parseNode(nodeStr);
+            const pos = this.worldToCanvas(node.x, node.y);
+            const label = this.getNodeLabel(nodeStr);
+
+            const isArtnet = artnetSet.has(nodeStr);
+            const diameter = (this.showArtnetNodes && isArtnet) ? this.nodeDiameter : 1.0;
+            const offset = (diameter / 2) * this.scale + 3;
+
+            const tw = this.ctx.measureText(label).width;
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            this.ctx.fillRect(pos.x - tw / 2 - 1, pos.y - offset - 11, tw + 2, 11);
+            this.ctx.fillStyle = isArtnet ? '#006600' : '#333333';
+            this.ctx.fillText(label, pos.x, pos.y - offset);
         }
     }
 
@@ -1615,6 +1680,7 @@ class NetworkVisualizer {
             this.lastCableData.push({
                 cableId: cableIndex,
                 nodeId,
+                nodeLabel: this.getNodeLabel(artnetNodeStr),
                 nodeStr: artnetNodeStr,
                 cableLength,
                 edgePointId: nearestEdge.id,
@@ -1633,7 +1699,7 @@ class NetworkVisualizer {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         for (const c of this.lastCableData) {
-            const label = `C${c.cableId}: ${c.cableLength.toFixed(1)}m`;
+            const label = `${c.nodeLabel}: ${c.cableLength.toFixed(1)}m`;
             const tw = this.ctx.measureText(label).width;
             this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             this.ctx.fillRect(c.labelX - tw / 2 - 2, c.labelY - 6, tw + 4, 12);
@@ -1753,7 +1819,7 @@ class NetworkVisualizer {
 
     showTooltip(x, y, nodeStr) {
         const node = this.parseNode(nodeStr);
-        const nodeId = this.nodeIds.get(nodeStr);
+        const label = this.getNodeLabel(nodeStr);
         const arrowCount = this.countArrowsFromNode(nodeStr);
 
         let totalEdges = 0;
@@ -1769,7 +1835,7 @@ class NetworkVisualizer {
         const isIntercom = this.intercomNodes.has(nodeStr);
         const nodeType = isIntercom ? 'Intercom Node' : (isArtnet ? 'ArtNet Node' : 'Regular Node');
 
-        let text = `Node ID: ${nodeId}\n`;
+        let text = `Node: ${label}\n`;
         text += `Position: (${node.x.toFixed(2)}, ${node.y.toFixed(2)})\n`;
         text += `Total edges: ${totalEdges}\n`;
         text += `Arrows drawn: ${arrowCount}\n`;
@@ -2460,11 +2526,11 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'Cable_ID,Smart_Node_ID,Smart_Node_X,Smart_Node_Y,Cable_Length_m,Edge_Point_Label,Intermediate_Point\n';
+        let csv = 'Cable_ID,Smart_Node,Smart_Node_X,Smart_Node_Y,Cable_Length_m,Edge_Point_Label,Intermediate_Point\n';
 
         for (const c of this.lastCableData) {
             const node = this.parseNode(c.nodeStr);
-            csv += `C${c.cableId},${c.nodeId},${node.x.toFixed(3)},${node.y.toFixed(3)},${c.cableLength.toFixed(2)},${c.edgePointLabel},${c.intermediateLabel}\n`;
+            csv += `C${c.cableId},${c.nodeLabel},${node.x.toFixed(3)},${node.y.toFixed(3)},${c.cableLength.toFixed(2)},${c.edgePointLabel},${c.intermediateLabel}\n`;
         }
 
         const total = this.lastCableData.reduce((s, c) => s + c.cableLength, 0);
@@ -2598,7 +2664,7 @@ class NetworkVisualizer {
         }
 
         let output = '=== ALL NODE RESULTS ===\n';
-        output += 'Node ID  | Coordinates      | Type        | Total | Arrows | Edge IDs\n';
+        output += 'Node     | Coordinates      | Type        | Total | Arrows | Edge IDs\n';
         output += '---------|------------------|-------------|-------|--------|----------\n';
 
         const sortedNodes = Array.from(this.nodes).sort((a, b) => {
@@ -2607,7 +2673,7 @@ class NetworkVisualizer {
 
         for (const nodeStr of sortedNodes) {
             const node = this.parseNode(nodeStr);
-            const nodeId = this.nodeIds.get(nodeStr);
+            const label = this.getNodeLabel(nodeStr);
             const arrowCount = this.countArrowsFromNode(nodeStr);
 
             let totalEdges = 0;
@@ -2622,7 +2688,7 @@ class NetworkVisualizer {
             const isArtnet = this.artnetOptimization.artnetNodes.includes(nodeStr);
             const nodeType = isArtnet ? 'ArtNet Node' : 'Regular Node';
 
-            output += `${nodeId.toString().padEnd(8)} | (${node.x.toFixed(1)},${node.y.toFixed(1)})${' '.repeat(8)} | ${nodeType.padEnd(11)} | ${totalEdges.toString().padEnd(5)} | ${arrowCount.toString().padEnd(6)} | ${edgeIdList.slice(0, 10).join(',')}\n`;
+            output += `${label.padEnd(8)} | (${node.x.toFixed(1)},${node.y.toFixed(1)})${' '.repeat(8)} | ${nodeType.padEnd(11)} | ${totalEdges.toString().padEnd(5)} | ${arrowCount.toString().padEnd(6)} | ${edgeIdList.slice(0, 10).join(',')}\n`;
         }
 
         output += '='.repeat(85) + '\n';

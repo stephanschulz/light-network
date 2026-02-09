@@ -1511,11 +1511,13 @@ class NetworkVisualizer {
         if (this.cableEdgePoints.length === 0 || this.cableIntermediatePoints.length === 0) return;
 
         let totalCableLength = 0;
+        const cableData = []; // collect per-cable info for labels (drawn after lines)
 
         this.ctx.lineWidth = this.lineWidth * 2 * this.scale;
 
         for (const artnetNodeStr of this.artnetOptimization.artnetNodes) {
             const node = this.parseNode(artnetNodeStr);
+            const nodeId = this.nodeIds.get(artnetNodeStr);
 
             // 1. Find nearest intermediate point (Euclidean)
             let minInterDist = Infinity;
@@ -1564,17 +1566,41 @@ class NetworkVisualizer {
             this.ctx.lineTo(edgePos.x, edgePos.y);
             this.ctx.stroke();
 
-            // Accumulate cable length
+            // Each cable runs its own full route: straight + Manhattan (not shared)
             const straightDist = Math.sqrt((node.x - nearestInter.x) ** 2 + (node.y - nearestInter.y) ** 2);
             const manhattanDist = Math.abs(nearestInter.x - corner.x) + Math.abs(nearestInter.y - corner.y)
                                 + Math.abs(corner.x - nearestEdge.x) + Math.abs(corner.y - nearestEdge.y);
-            totalCableLength += straightDist + manhattanDist;
+            const cableLength = straightDist + manhattanDist;
+            totalCableLength += cableLength;
+
+            // Store for label drawing pass
+            cableData.push({
+                nodeId,
+                cableLength,
+                // Label at midpoint of straight segment
+                labelX: (nodePos.x + interPos.x) / 2,
+                labelY: (nodePos.y + interPos.y) / 2,
+            });
+        }
+
+        // Draw per-cable labels (ID + length) on top of cable lines
+        this.ctx.font = `${Math.max(8, this.fontSize * 0.45)}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        for (const c of cableData) {
+            const label = `C${c.nodeId}: ${c.cableLength.toFixed(1)}m`;
+            const tw = this.ctx.measureText(label).width;
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            this.ctx.fillRect(c.labelX - tw / 2 - 2, c.labelY - 6, tw + 4, 12);
+            this.ctx.fillStyle = '#cc6600';
+            this.ctx.fillText(label, c.labelX, c.labelY);
         }
 
         // Draw all 16 markers on top of cables
         this.drawCablePointMarkers();
 
-        document.getElementById('cableInfo').textContent = `Total Cable Length: ${totalCableLength.toFixed(2)}m`;
+        document.getElementById('cableInfo').textContent =
+            `Total Cable: ${totalCableLength.toFixed(2)}m (${cableData.length} cables)`;
     }
 
     // === MOUSE INTERACTION === //

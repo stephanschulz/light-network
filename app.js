@@ -194,6 +194,25 @@ class NetworkVisualizer {
             this.printNodeResults();
         });
 
+        document.getElementById('saveProjectBtn').addEventListener('click', () => {
+            this.saveProject();
+        });
+
+        document.getElementById('loadProjectBtn').addEventListener('click', () => {
+            document.getElementById('projectFileInput').click();
+        });
+
+        document.getElementById('projectFileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                this.loadProject(ev.target.result);
+            };
+            reader.readAsText(file);
+            e.target.value = ''; // allow re-selecting same file
+        });
+
         document.getElementById('flipYToggle').addEventListener('change', (e) => {
             this.yFlipped = e.target.checked;
             console.log(`Y display: ${this.yFlipped ? 'Flipped' : 'Normal'}`);
@@ -450,6 +469,7 @@ class NetworkVisualizer {
     }
 
     parseCSV(csvText) {
+        this.lastCSVText = csvText;
         const lines = csvText.trim().split('\n');
         const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
 
@@ -2645,6 +2665,261 @@ class NetworkVisualizer {
         
         this.downloadCSV('edge_length_summary.csv', csv);
         console.log(`Exported length summary: ${sortedLengths.length} unique lengths, ${totalEdges} total edges (${totalIntercom} intercom), diameter: ${diameter}m`);
+    }
+
+    saveProject() {
+        if (!this.lastCSVText) {
+            console.log('No CSV data loaded yet');
+            return;
+        }
+
+        // Serialize edge directions: [edgeId, startNodeId, endNodeId]
+        const edgeDirectionTuples = [];
+        if (this.artnetOptimization && this.artnetOptimization.edgeDirections) {
+            for (const [edge, dir] of this.artnetOptimization.edgeDirections.entries()) {
+                const edgeId = this.edgeIds.get(edge);
+                const startId = dir.start ? this.nodeIds.get(dir.start) : null;
+                const endId = dir.end ? this.nodeIds.get(dir.end) : null;
+                if (edgeId !== undefined) {
+                    edgeDirectionTuples.push([edgeId, startId, endId]);
+                }
+            }
+        }
+
+        // Serialize intercom node IDs
+        const intercomNodeIds = [];
+        for (const nodeStr of this.intercomNodes) {
+            const id = this.nodeIds.get(nodeStr);
+            if (id !== undefined) intercomNodeIds.push(id);
+        }
+
+        const project = {
+            csvText: this.lastCSVText,
+            settings: {
+                nodeDiameter: this.nodeDiameter,
+                arrowLengthPercent: this.arrowLengthPercent,
+                fontSize: this.fontSize,
+                nodeDiameterOffset: this.nodeDiameterOffset,
+                wattsPerMeter: this.wattsPerMeter,
+                voltage: this.voltage,
+                ledRingLength: this.ledRingLength,
+            },
+            toggles: {
+                yFlipped: this.yFlipped,
+                showArtnetNodes: this.showArtnetNodes,
+                showGrid: this.showGrid,
+                showNodeIds: this.showNodeIds,
+                showDataCables: this.showDataCables,
+                showEdges: this.showEdges,
+                showEdgeLengths: this.showEdgeLengths,
+                showNodeTotalLength: this.showNodeTotalLength,
+                showLedRings: this.showLedRings,
+                intercomEditMode: this.intercomEditMode,
+                edgeFlipMode: this.edgeFlipMode,
+                selectedLengthGroup: this.selectedLengthGroup,
+            },
+            intercomNodeIds: intercomNodeIds,
+            cableEdgePoints: this.cableEdgePoints,
+            cableIntermediatePoints: this.cableIntermediatePoints,
+            edgeDirections: edgeDirectionTuples,
+        };
+
+        const json = JSON.stringify(project, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'project.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        console.log('Project saved');
+    }
+
+    loadProject(jsonText) {
+        let json;
+        try {
+            json = JSON.parse(jsonText);
+        } catch (e) {
+            console.error('Invalid JSON:', e);
+            return;
+        }
+
+        // 1. Rebuild network from CSV
+        this.parseCSV(json.csvText);
+
+        // 2. Restore intercom nodes
+        if (json.intercomNodeIds && json.intercomNodeIds.length > 0) {
+            const nodeIdToStr = new Map();
+            for (const [nodeStr, nodeId] of this.nodeIds.entries()) {
+                nodeIdToStr.set(nodeId, nodeStr);
+            }
+            this.intercomNodes = new Set();
+            this.intercomEdges = [];
+            for (const id of json.intercomNodeIds) {
+                const nodeStr = nodeIdToStr.get(id);
+                if (nodeStr) {
+                    this.intercomNodes.add(nodeStr);
+                    for (const edge of this.edges) {
+                        if ((edge.start === nodeStr || edge.end === nodeStr) &&
+                            !this.intercomEdges.includes(edge)) {
+                            this.intercomEdges.push(edge);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Restore edge directions
+        if (json.edgeDirections && json.edgeDirections.length > 0) {
+            const nodeIdToStr = new Map();
+            for (const [nodeStr, nodeId] of this.nodeIds.entries()) {
+                nodeIdToStr.set(nodeId, nodeStr);
+            }
+            // Build edgeId → edge reverse map
+            const edgeIdToEdge = new Map();
+            for (const [edge, edgeId] of this.edgeIds.entries()) {
+                edgeIdToEdge.set(edgeId, edge);
+            }
+
+            const edgeDirections = new Map();
+            const artnetOutputCounts = new Map();
+            const rowPower = new Map();
+            const artnetNodesSet = new Set();
+
+            for (const [edgeId, startId, endId] of json.edgeDirections) {
+                const edge = edgeIdToEdge.get(edgeId);
+                if (!edge) continue;
+
+                const startStr = startId != null ? nodeIdToStr.get(startId) : null;
+                const endStr = endId != null ? nodeIdToStr.get(endId) : null;
+
+                edgeDirections.set(edge, { start: startStr || null, end: endStr || null });
+
+                if (startStr) {
+                    artnetOutputCounts.set(startStr, (artnetOutputCounts.get(startStr) || 0) + 1);
+                    const startY = this.parseNode(startStr).y;
+                    rowPower.set(startY, (rowPower.get(startY) || 0) + 1);
+                    artnetNodesSet.add(startStr);
+                }
+            }
+
+            const artnetNodes = Array.from(artnetNodesSet);
+            const endNodesSet = new Set();
+            for (const edge of this.edges) {
+                const dir = edgeDirections.get(edge);
+                if (dir && dir.end && !artnetNodesSet.has(dir.end)) {
+                    endNodesSet.add(dir.end);
+                }
+            }
+
+            this.artnetOptimization = {
+                artnetNodes: artnetNodes,
+                endNodes: Array.from(endNodesSet),
+                edgeDirections: edgeDirections,
+                artnetOutputCounts: artnetOutputCounts,
+                rowPower: rowPower,
+                rowViolations: [],
+                directionViolations: [],
+            };
+        }
+
+        // 4. Restore cable routing points
+        if (json.cableEdgePoints) {
+            this.cableEdgePoints = json.cableEdgePoints;
+        }
+        if (json.cableIntermediatePoints) {
+            this.cableIntermediatePoints = json.cableIntermediatePoints;
+        }
+
+        // 5. Restore settings and sync HTML inputs
+        if (json.settings) {
+            const s = json.settings;
+            if (s.nodeDiameter !== undefined) {
+                this.nodeDiameter = s.nodeDiameter;
+                document.getElementById('nodeDiameter').value = s.nodeDiameter;
+                document.getElementById('nodeDiameterValue').textContent = s.nodeDiameter.toFixed(1);
+            }
+            if (s.arrowLengthPercent !== undefined) {
+                this.arrowLengthPercent = s.arrowLengthPercent;
+                document.getElementById('arrowLength').value = s.arrowLengthPercent;
+                document.getElementById('arrowLengthValue').textContent = s.arrowLengthPercent;
+            }
+            if (s.fontSize !== undefined) {
+                this.fontSize = s.fontSize;
+                document.getElementById('fontSize').value = s.fontSize;
+                document.getElementById('fontSizeValue').textContent = s.fontSize;
+            }
+            if (s.nodeDiameterOffset !== undefined) {
+                this.nodeDiameterOffset = s.nodeDiameterOffset;
+                document.getElementById('nodeDiameterOffset').value = s.nodeDiameterOffset;
+                document.getElementById('nodeDiameterOffsetValue').textContent = s.nodeDiameterOffset.toFixed(2);
+            }
+            if (s.wattsPerMeter !== undefined) this.wattsPerMeter = s.wattsPerMeter;
+            if (s.voltage !== undefined) this.voltage = s.voltage;
+            if (s.ledRingLength !== undefined) this.ledRingLength = s.ledRingLength;
+        }
+
+        // 6. Restore toggles and sync HTML inputs
+        if (json.toggles) {
+            const t = json.toggles;
+            if (t.yFlipped !== undefined) {
+                this.yFlipped = t.yFlipped;
+                document.getElementById('flipYToggle').checked = t.yFlipped;
+            }
+            if (t.showArtnetNodes !== undefined) {
+                this.showArtnetNodes = t.showArtnetNodes;
+                document.getElementById('showArtnetNodes').checked = t.showArtnetNodes;
+            }
+            if (t.showGrid !== undefined) {
+                this.showGrid = t.showGrid;
+                document.getElementById('showGrid').checked = t.showGrid;
+            }
+            if (t.showNodeIds !== undefined) {
+                this.showNodeIds = t.showNodeIds;
+                document.getElementById('showNodeIds').checked = t.showNodeIds;
+            }
+            if (t.showDataCables !== undefined) {
+                this.showDataCables = t.showDataCables;
+                document.getElementById('showDataCables').checked = t.showDataCables;
+            }
+            if (t.showEdges !== undefined) {
+                this.showEdges = t.showEdges;
+            }
+            if (t.showEdgeLengths !== undefined) {
+                this.showEdgeLengths = t.showEdgeLengths;
+                document.getElementById('showEdgeLengths').checked = t.showEdgeLengths;
+            }
+            if (t.showNodeTotalLength !== undefined) {
+                this.showNodeTotalLength = t.showNodeTotalLength;
+                document.getElementById('showNodeTotalLength').checked = t.showNodeTotalLength;
+            }
+            if (t.showLedRings !== undefined) {
+                this.showLedRings = t.showLedRings;
+                document.getElementById('showLedRings').checked = t.showLedRings;
+            }
+            if (t.intercomEditMode !== undefined) {
+                this.intercomEditMode = t.intercomEditMode;
+                document.getElementById('intercomEditMode').checked = t.intercomEditMode;
+            }
+            if (t.edgeFlipMode !== undefined) {
+                this.edgeFlipMode = t.edgeFlipMode;
+                document.getElementById('edgeFlipMode').checked = t.edgeFlipMode;
+                document.getElementById('edgeFlipHelp').style.display = t.edgeFlipMode ? 'block' : 'none';
+            }
+            if (t.selectedLengthGroup !== undefined) {
+                this.selectedLengthGroup = t.selectedLengthGroup;
+                document.getElementById('lengthFilter').value = t.selectedLengthGroup;
+            }
+        }
+
+        // 7. Recalculate and redraw
+        this.calculateLengthGroups();
+        this.updateLengthFilterLabel();
+        this.updateArtNetInfo();
+        this.updateIntercomInfo();
+        this.drawNetwork();
+
+        console.log('Project loaded');
     }
 
     downloadCSV(filename, content) {

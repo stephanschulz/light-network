@@ -193,6 +193,10 @@ class NetworkVisualizer {
             this.drawNetwork();
         });
 
+        document.getElementById('exportCablesBtn').addEventListener('click', () => {
+            this.exportDataCables();
+        });
+
         document.getElementById('resetCablePointsBtn').addEventListener('click', () => {
             this.cableEdgePoints = [];
             this.cableIntermediatePoints = [];
@@ -1399,17 +1403,17 @@ class NetworkVisualizer {
 
         this.cableEdgePoints = [
             // Top side (2 points)
-            { id: 'et0', x: minX + w / 3, y: minY, side: 'top', type: 'edge' },
-            { id: 'et1', x: minX + 2 * w / 3, y: minY, side: 'top', type: 'edge' },
+            { id: 'et0', label: 'T1', x: minX + w / 3, y: minY, side: 'top', type: 'edge' },
+            { id: 'et1', label: 'T2', x: minX + 2 * w / 3, y: minY, side: 'top', type: 'edge' },
             // Bottom side (2 points)
-            { id: 'eb0', x: minX + w / 3, y: maxY, side: 'bottom', type: 'edge' },
-            { id: 'eb1', x: minX + 2 * w / 3, y: maxY, side: 'bottom', type: 'edge' },
+            { id: 'eb0', label: 'B1', x: minX + w / 3, y: maxY, side: 'bottom', type: 'edge' },
+            { id: 'eb1', label: 'B2', x: minX + 2 * w / 3, y: maxY, side: 'bottom', type: 'edge' },
             // Left side (2 points)
-            { id: 'el0', x: minX, y: minY + h / 3, side: 'left', type: 'edge' },
-            { id: 'el1', x: minX, y: minY + 2 * h / 3, side: 'left', type: 'edge' },
+            { id: 'el0', label: 'L1', x: minX, y: minY + h / 3, side: 'left', type: 'edge' },
+            { id: 'el1', label: 'L2', x: minX, y: minY + 2 * h / 3, side: 'left', type: 'edge' },
             // Right side (2 points)
-            { id: 'er0', x: maxX, y: minY + h / 3, side: 'right', type: 'edge' },
-            { id: 'er1', x: maxX, y: minY + 2 * h / 3, side: 'right', type: 'edge' },
+            { id: 'er0', label: 'R1', x: maxX, y: minY + h / 3, side: 'right', type: 'edge' },
+            { id: 'er1', label: 'R2', x: maxX, y: minY + 2 * h / 3, side: 'right', type: 'edge' },
         ];
 
         // 8 intermediate points: 2 each on col 1, col 17 (last col), row A (first row), row M (last row)
@@ -1447,7 +1451,7 @@ class NetworkVisualizer {
     }
 
     drawCablePointMarkers() {
-        // Draw edge points as yellow diamonds
+        // Draw edge points as yellow diamonds with labels
         for (const pt of this.cableEdgePoints) {
             const pos = this.worldToCanvas(pt.x, pt.y);
             const size = 8;
@@ -1477,6 +1481,28 @@ class NetworkVisualizer {
             this.ctx.fill();
             this.ctx.stroke();
             this.ctx.restore();
+
+            // Draw label outside the stage edge
+            this.ctx.font = `bold ${Math.max(9, this.fontSize * 0.5)}px Arial`;
+            this.ctx.fillStyle = '#cc6600';
+            const labelOffset = 14;
+            if (pt.side === 'top') {
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'bottom';
+                this.ctx.fillText(pt.label, pos.x, pos.y - labelOffset);
+            } else if (pt.side === 'bottom') {
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'top';
+                this.ctx.fillText(pt.label, pos.x, pos.y + labelOffset);
+            } else if (pt.side === 'left') {
+                this.ctx.textAlign = 'right';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(pt.label, pos.x - labelOffset, pos.y);
+            } else {
+                this.ctx.textAlign = 'left';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(pt.label, pos.x + labelOffset, pos.y);
+            }
         }
 
         // Draw intermediate points as cyan circles
@@ -1511,7 +1537,7 @@ class NetworkVisualizer {
         if (this.cableEdgePoints.length === 0 || this.cableIntermediatePoints.length === 0) return;
 
         let totalCableLength = 0;
-        const cableData = []; // collect per-cable info for labels (drawn after lines)
+        this.lastCableData = []; // collect per-cable info for labels + export
 
         this.ctx.lineWidth = this.lineWidth * 2 * this.scale;
 
@@ -1573,10 +1599,14 @@ class NetworkVisualizer {
             const cableLength = straightDist + manhattanDist;
             totalCableLength += cableLength;
 
-            // Store for label drawing pass
-            cableData.push({
+            // Store for label drawing pass and export
+            this.lastCableData.push({
                 nodeId,
+                nodeStr: artnetNodeStr,
                 cableLength,
+                edgePointId: nearestEdge.id,
+                edgePointLabel: nearestEdge.label,
+                intermediateId: nearestInter.id,
                 // Label at midpoint of straight segment
                 labelX: (nodePos.x + interPos.x) / 2,
                 labelY: (nodePos.y + interPos.y) / 2,
@@ -1587,7 +1617,7 @@ class NetworkVisualizer {
         this.ctx.font = `${Math.max(8, this.fontSize * 0.45)}px Arial`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        for (const c of cableData) {
+        for (const c of this.lastCableData) {
             const label = `C${c.nodeId}: ${c.cableLength.toFixed(1)}m`;
             const tw = this.ctx.measureText(label).width;
             this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
@@ -1600,7 +1630,7 @@ class NetworkVisualizer {
         this.drawCablePointMarkers();
 
         document.getElementById('cableInfo').textContent =
-            `Total Cable: ${totalCableLength.toFixed(2)}m (${cableData.length} cables)`;
+            `Total Cable: ${totalCableLength.toFixed(2)}m (${this.lastCableData.length} cables)`;
     }
 
     // === MOUSE INTERACTION === //
@@ -2408,6 +2438,27 @@ class NetworkVisualizer {
     }
 
     // === EXPORT FUNCTIONS === //
+
+    exportDataCables() {
+        if (!this.lastCableData || this.lastCableData.length === 0) {
+            console.log('Enable Show Data Cables first');
+            return;
+        }
+
+        let csv = 'Cable_ID,Smart_Node_ID,Smart_Node_X,Smart_Node_Y,Cable_Length_m,Edge_Point_ID,Edge_Point_Label,Intermediate_Point_ID\n';
+
+        for (const c of this.lastCableData) {
+            const node = this.parseNode(c.nodeStr);
+            csv += `C${c.nodeId},${c.nodeId},${node.x.toFixed(3)},${node.y.toFixed(3)},${c.cableLength.toFixed(2)},${c.edgePointId},${c.edgePointLabel},${c.intermediateId}\n`;
+        }
+
+        const total = this.lastCableData.reduce((s, c) => s + c.cableLength, 0);
+        csv += `\nTOTAL,,,,${total.toFixed(2)},,,\n`;
+        csv += `Cable_Count,,,,${this.lastCableData.length},,,\n`;
+
+        this.downloadCSV('data_cable_export.csv', csv);
+        console.log(`Exported ${this.lastCableData.length} data cables, total length: ${total.toFixed(2)}m`);
+    }
 
     exportEdgeData() {
         if (!this.artnetOptimization) {

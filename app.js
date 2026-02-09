@@ -1482,26 +1482,28 @@ class NetworkVisualizer {
             this.ctx.stroke();
             this.ctx.restore();
 
-            // Draw label outside the stage edge
+            // Draw label outside the stage edge, with cable count
+            const count = (this.edgePointCableCounts && this.edgePointCableCounts.get(pt.label)) || 0;
+            const labelText = `${pt.label} (${count})`;
             this.ctx.font = `bold ${Math.max(9, this.fontSize * 0.5)}px Arial`;
             this.ctx.fillStyle = '#cc6600';
             const labelOffset = 14;
             if (pt.side === 'top') {
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'bottom';
-                this.ctx.fillText(pt.label, pos.x, pos.y - labelOffset);
+                this.ctx.fillText(labelText, pos.x, pos.y - labelOffset);
             } else if (pt.side === 'bottom') {
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'top';
-                this.ctx.fillText(pt.label, pos.x, pos.y + labelOffset);
+                this.ctx.fillText(labelText, pos.x, pos.y + labelOffset);
             } else if (pt.side === 'left') {
                 this.ctx.textAlign = 'right';
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText(pt.label, pos.x - labelOffset, pos.y);
+                this.ctx.fillText(labelText, pos.x - labelOffset, pos.y);
             } else {
                 this.ctx.textAlign = 'left';
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText(pt.label, pos.x + labelOffset, pos.y);
+                this.ctx.fillText(labelText, pos.x + labelOffset, pos.y);
             }
         }
 
@@ -1538,8 +1540,11 @@ class NetworkVisualizer {
 
         let totalCableLength = 0;
         this.lastCableData = []; // collect per-cable info for labels + export
+        this.edgePointCableCounts = new Map(); // count cables per edge point label
 
         this.ctx.lineWidth = this.lineWidth * 2 * this.scale;
+
+        let cableIndex = 1; // sequential cable ID
 
         for (const artnetNodeStr of this.artnetOptimization.artnetNodes) {
             const node = this.parseNode(artnetNodeStr);
@@ -1599,18 +1604,28 @@ class NetworkVisualizer {
             const cableLength = straightDist + manhattanDist;
             totalCableLength += cableLength;
 
+            // Intermediate label derived from its paired edge point
+            const intermediateLabel = nearestEdge.label + '_i';
+
+            // Count cables per edge point
+            this.edgePointCableCounts.set(nearestEdge.label,
+                (this.edgePointCableCounts.get(nearestEdge.label) || 0) + 1);
+
             // Store for label drawing pass and export
             this.lastCableData.push({
+                cableId: cableIndex,
                 nodeId,
                 nodeStr: artnetNodeStr,
                 cableLength,
                 edgePointId: nearestEdge.id,
                 edgePointLabel: nearestEdge.label,
-                intermediateId: nearestInter.id,
+                intermediateLabel,
                 // Label at midpoint of straight segment
                 labelX: (nodePos.x + interPos.x) / 2,
                 labelY: (nodePos.y + interPos.y) / 2,
             });
+
+            cableIndex++;
         }
 
         // Draw per-cable labels (ID + length) on top of cable lines
@@ -1618,7 +1633,7 @@ class NetworkVisualizer {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         for (const c of this.lastCableData) {
-            const label = `C${c.nodeId}: ${c.cableLength.toFixed(1)}m`;
+            const label = `C${c.cableId}: ${c.cableLength.toFixed(1)}m`;
             const tw = this.ctx.measureText(label).width;
             this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             this.ctx.fillRect(c.labelX - tw / 2 - 2, c.labelY - 6, tw + 4, 12);
@@ -2445,16 +2460,16 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'Cable_ID,Smart_Node_ID,Smart_Node_X,Smart_Node_Y,Cable_Length_m,Edge_Point_ID,Edge_Point_Label,Intermediate_Point_ID\n';
+        let csv = 'Cable_ID,Smart_Node_ID,Smart_Node_X,Smart_Node_Y,Cable_Length_m,Edge_Point_Label,Intermediate_Point\n';
 
         for (const c of this.lastCableData) {
             const node = this.parseNode(c.nodeStr);
-            csv += `C${c.nodeId},${c.nodeId},${node.x.toFixed(3)},${node.y.toFixed(3)},${c.cableLength.toFixed(2)},${c.edgePointId},${c.edgePointLabel},${c.intermediateId}\n`;
+            csv += `C${c.cableId},${c.nodeId},${node.x.toFixed(3)},${node.y.toFixed(3)},${c.cableLength.toFixed(2)},${c.edgePointLabel},${c.intermediateLabel}\n`;
         }
 
         const total = this.lastCableData.reduce((s, c) => s + c.cableLength, 0);
-        csv += `\nTOTAL,,,,${total.toFixed(2)},,,\n`;
-        csv += `Cable_Count,,,,${this.lastCableData.length},,,\n`;
+        csv += `\nTOTAL,,,,${total.toFixed(2)},,\n`;
+        csv += `Cable_Count,,,,${this.lastCableData.length},,\n`;
 
         this.downloadCSV('data_cable_export.csv', csv);
         console.log(`Exported ${this.lastCableData.length} data cables, total length: ${total.toFixed(2)}m`);

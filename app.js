@@ -656,8 +656,9 @@ class NetworkVisualizer {
                 if (d < minRowDist) { minRowDist = d; rowIdx = i; }
             }
             if (minColDist < gridTol && minRowDist < gridTol) {
-                const rowLetter = rowIdx < 26 ? String.fromCharCode(65 + rowIdx) : 'A' + String.fromCharCode(65 + rowIdx - 26);
-                const colNumber = colIdx + 1;
+                const flippedRowIdx = sortedY.length - 1 - rowIdx;
+                const rowLetter = flippedRowIdx < 26 ? String.fromCharCode(65 + flippedRowIdx) : 'A' + String.fromCharCode(65 + flippedRowIdx - 26);
+                const colNumber = sortedX.length - colIdx;
                 this.nodeGridLabels.set(nodeStr, `${rowLetter}${colNumber}`);
             } else {
                 // Off-grid node: fall back to numeric ID
@@ -1378,21 +1379,24 @@ class NetworkVisualizer {
         this.ctx.fillStyle = '#000000';
         this.ctx.font = `${this.fontSize * 0.7}px Arial`;
 
-        // Row labels (letters) - use binned Y coordinates
+        // Row labels (letters) - A at bottom, ascending upward
+        const rowCount = this.gridRowsY.length;
         this.gridRowsY.forEach((y, i) => {
-            const letter = i < 26 ? String.fromCharCode(65 + i) : 'AA';
+            const letterIdx = rowCount - 1 - i;
+            const letter = letterIdx < 26 ? String.fromCharCode(65 + letterIdx) : 'AA';
             const pos = this.worldToCanvas(this.worldMinX, y);
             this.ctx.textAlign = 'right';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(letter, pos.x - 5, pos.y);
         });
 
-        // Column labels (numbers) - use binned X coordinates
+        // Column labels (numbers) - 1 at right, ascending leftward
+        const colCount = this.gridColumnsX.length;
         this.gridColumnsX.forEach((x, i) => {
             const pos = this.worldToCanvas(x, this.worldMinY);
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'bottom';
-            this.ctx.fillText((i + 1).toString(), pos.x, pos.y - 5);
+            this.ctx.fillText((colCount - i).toString(), pos.x, pos.y - 5);
         });
     }
 

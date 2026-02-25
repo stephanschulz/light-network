@@ -19,7 +19,7 @@ class NetworkVisualizer {
         this.intercomEditMode = false;
         this.edgeFlipMode = false;
         this.yFlipped = false;
-        this.nodeDiameterOffset = 0.5; // meters
+        this.nodeDiameterOffset = 0.8; // meters
         this.wattsPerMeter = 12; // watts per meter of LED strip
         this.voltage = 120; // voltage for amp calculation
         this.ledRingLength = 2.5; // meters per LED ring around each node

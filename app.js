@@ -990,7 +990,6 @@ class NetworkVisualizer {
             const endPos = this.worldToCanvas(end.x, end.y);
 
             const edgeLength = this.calculateEdgeLength(edge);
-            const rounded = Math.round(edgeLength * 100) / 100;
             const adjustedLength = Math.max(0, edgeLength - this.nodeDiameterOffset);
             
             const midX = (startPos.x + endPos.x) / 2;
@@ -1001,12 +1000,12 @@ class NetworkVisualizer {
             this.ctx.textBaseline = 'middle';
             
             // Background for readability
-            const text = `${rounded.toFixed(2)} (${adjustedLength.toFixed(2)})`;
+            const text = adjustedLength.toFixed(2);
             const textWidth = this.ctx.measureText(text).width;
             this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             this.ctx.fillRect(midX - textWidth/2 - 2, midY - 7, textWidth + 4, 14);
             
-            // Text: raw (adjusted)
+            // Text: adjusted length (edge length minus node diameter)
             this.ctx.fillStyle = '#333';
             this.ctx.fillText(text, midX, midY);
         }

@@ -23,9 +23,9 @@ class NetworkVisualizer {
         this.wattsPerMeter = 12; // watts per meter of LED strip
         this.voltage = 120; // voltage for amp calculation
         this.ledRingLength = 2.5; // meters per LED ring around each node
-        this.showEdgeLengths = false;
+        this.showEdgeLengths = true;
         this.showNodeTotalLength = false;
-        this.showLedRings = false;
+        this.showLedRings = true;
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
@@ -37,9 +37,9 @@ class NetworkVisualizer {
         // Display options
         this.showArtnetNodes = false;
         this.showDataCables = false;
-        this.showGrid = false;
+        this.showGrid = true;
         this.showEdges = true;
-        this.showNodeIds = false;
+        this.showNodeIds = true;
         this.selectedLengthGroup = -1;
 
         // Optimization results
@@ -221,6 +221,14 @@ class NetworkVisualizer {
 
         document.getElementById('exportCablesBtn').addEventListener('click', () => {
             this.exportDataCables();
+        });
+
+        document.getElementById('exportPdfBtn').addEventListener('click', () => {
+            this.exportPDF();
+        });
+
+        document.getElementById('exportSvgBtn').addEventListener('click', () => {
+            this.exportSVG();
         });
 
         document.getElementById('resetCablePointsBtn').addEventListener('click', () => {
@@ -1349,6 +1357,17 @@ class NetworkVisualizer {
         this.ctx.rotate(-Math.PI / 2);
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText(`${height.toFixed(1)}m`, 0, 0);
+        this.ctx.restore();
+
+        // "ENTRANCE" label on the right side (rotated vertical)
+        this.ctx.save();
+        this.ctx.fillStyle = '#333333';
+        this.ctx.font = `bold ${this.fontSize}px Arial`;
+        this.ctx.translate(bottomRight.x + 10, (topLeft.y + bottomRight.y) / 2);
+        this.ctx.rotate(Math.PI / 2);
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillText('ENTRANCE', 0, 0);
         this.ctx.restore();
     }
 
@@ -2971,6 +2990,98 @@ class NetworkVisualizer {
 
         // Download as text file
         this.downloadTextFile('node_results.txt', output);
+    }
+
+    _patchSvgContext(svgCtx) {
+        let currentDash = [];
+        svgCtx.setLineDash = function(pattern) { currentDash = pattern || []; };
+        svgCtx.getLineDash = function() { return currentDash; };
+
+        const originalStroke = svgCtx.stroke.bind(svgCtx);
+        svgCtx.stroke = function() {
+            originalStroke();
+            if (currentDash.length > 0) {
+                const svg = svgCtx.getSvg();
+                const lastEl = svg.querySelector(':scope > :last-child')
+                    || svg.lastElementChild;
+                if (lastEl) {
+                    const deepest = lastEl.querySelector(':last-child') || lastEl;
+                    deepest.setAttribute('stroke-dasharray', currentDash.join(','));
+                }
+            }
+        };
+    }
+
+    _renderToSvgContext() {
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        const extraRight = this.artnetOptimization ? 120 : 0;
+        const exportWidth = width + extraRight;
+        const svgCtx = new C2S(exportWidth, height);
+        this._patchSvgContext(svgCtx);
+
+        const originalCtx = this.ctx;
+        this.ctx = svgCtx;
+        try {
+            this.drawNetwork();
+        } finally {
+            this.ctx = originalCtx;
+        }
+        return { svgCtx, exportWidth, exportHeight: height };
+    }
+
+    exportSVG() {
+        if (this.nodes.size === 0) {
+            alert('No data to export. Load CSV data first.');
+            return;
+        }
+
+        const { svgCtx } = this._renderToSvgContext();
+        const svgString = svgCtx.getSerializedSvg(true);
+        const blob = new Blob([svgString], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'network-visualization.svg';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    async exportPDF() {
+        if (this.nodes.size === 0) {
+            alert('No data to export. Load CSV data first.');
+            return;
+        }
+
+        if (typeof C2S === 'undefined' || typeof window.jspdf === 'undefined') {
+            alert('PDF export libraries not loaded. Check your internet connection and reload.');
+            return;
+        }
+
+        const { svgCtx, exportWidth, exportHeight } = this._renderToSvgContext();
+        const svgElement = svgCtx.getSvg();
+        svgElement.setAttribute('viewBox', `0 0 ${exportWidth} ${exportHeight}`);
+        svgElement.setAttribute('width', `${exportWidth}`);
+        svgElement.setAttribute('height', `${exportHeight}`);
+
+        const pxToMm = 25.4 / 96;
+        const pdfWidth = exportWidth * pxToMm;
+        const pdfHeight = exportHeight * pxToMm;
+        const orientation = pdfWidth > pdfHeight ? 'landscape' : 'portrait';
+        const pageW = orientation === 'landscape' ? Math.max(pdfWidth, pdfHeight) : Math.min(pdfWidth, pdfHeight);
+        const pageH = orientation === 'landscape' ? Math.min(pdfWidth, pdfHeight) : Math.max(pdfWidth, pdfHeight);
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation, unit: 'mm', format: [pageW, pageH] });
+
+        try {
+            await doc.svg(svgElement, { x: 0, y: 0, width: pageW, height: pageH });
+            doc.save('network-visualization.pdf');
+        } catch (err) {
+            console.error('PDF export failed, falling back to SVG:', err);
+            alert('PDF export failed. Downloading as SVG instead (opens in all vector editors).');
+            this.exportSVG();
+        }
     }
 
     downloadTextFile(filename, content) {

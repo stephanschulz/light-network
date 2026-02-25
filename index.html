@@ -40,6 +40,8 @@
                 <button id="exportEdgesBtn" class="btn">Export Edge Data</button>
                 <button id="exportLengthsBtn" class="btn">Export Length Summary</button>
                 <button id="printResultsBtn" class="btn">Print Node Results</button>
+                <button id="exportPdfBtn" class="btn">Export PDF (Vector)</button>
+                <button id="exportSvgBtn" class="btn">Export SVG (Vector)</button>
                 <button id="saveProjectBtn" class="btn">Save Project</button>
                 <button id="loadProjectBtn" class="btn">Load Project</button>
                 <input type="file" id="projectFileInput" accept=".json" style="display:none">
@@ -58,11 +60,11 @@
                     Show Smart Nodes (□ + #)
                 </label>
                 <label>
-                    <input type="checkbox" id="showGrid">
+                    <input type="checkbox" id="showGrid" checked>
                     Show Grid
                 </label>
                 <label>
-                    <input type="checkbox" id="showNodeIds">
+                    <input type="checkbox" id="showNodeIds" checked>
                     Show Node IDs
                 </label>
                 <label>
@@ -110,7 +112,7 @@
                 <input type="range" id="nodeDiameterOffset" min="0" max="1" step="0.01" value="0.8">
 
                 <label>
-                    <input type="checkbox" id="showEdgeLengths">
+                    <input type="checkbox" id="showEdgeLengths" checked>
                     Show Edge Lengths
                 </label>
                 <label>
@@ -118,7 +120,7 @@
                     Show Node Total Length
                 </label>
                 <label>
-                    <input type="checkbox" id="showLedRings">
+                    <input type="checkbox" id="showLedRings" checked>
                     Show LED Rings (2.5m)
                 </label>
             </div>
@@ -137,6 +139,9 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/canvas2svg@1.0.16/canvas2svg.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.4/dist/svg2pdf.umd.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

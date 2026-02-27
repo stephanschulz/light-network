@@ -80,7 +80,9 @@ class NetworkVisualizer {
         // Initial canvas setup - wait for DOM to be ready
         setTimeout(() => {
             this.resizeCanvas();
-            this.loadDefaultCSV();
+            if (!this._projectLoaded) {
+                this.loadDefaultCSV();
+            }
         }, 100);
     }
 
@@ -764,6 +766,13 @@ class NetworkVisualizer {
             }
         }
 
+        // Assign default direction for edges without flow data in CSV
+        for (const edge of this.edges) {
+            if (!edgeDirections.has(edge)) {
+                edgeDirections.set(edge, { start: edge.start, end: edge.end });
+            }
+        }
+
         // Build artnetNodes array
         const artnetNodes = Array.from(artnetNodesSet);
 
@@ -1181,6 +1190,11 @@ class NetworkVisualizer {
             // IMPORTANT: Only count edges that would actually be drawn as arrows
             // Must have BOTH start AND end defined (matching drawArrows logic)
             if (dir && dir.start && dir.end && dir.start === nodeStr) {
+                // Arrow must follow the physical edge
+                const dirMatchesEdge = (dir.start === edge.start && dir.end === edge.end) ||
+                                      (dir.start === edge.end && dir.end === edge.start);
+                if (!dirMatchesEdge) continue;
+
                 // Check if the arrow would actually be drawn (skip zero-length edges in WORLD coordinates)
                 const from = this.parseNode(dir.start);
                 const to = this.parseNode(dir.end);
@@ -1230,6 +1244,11 @@ class NetworkVisualizer {
             // Use the optimized edge direction to determine arrow direction
             const dir = this.artnetOptimization.edgeDirections.get(edge);
             if (dir && dir.start && dir.end) {
+                // Arrow must follow the physical edge
+                const dirMatchesEdge = (dir.start === edge.start && dir.end === edge.end) ||
+                                      (dir.start === edge.end && dir.end === edge.start);
+                if (!dirMatchesEdge) continue;
+
                 // Check if it will actually be drawn (not zero-length)
                 const from = this.parseNode(dir.start);
                 const to = this.parseNode(dir.end);
@@ -1298,7 +1317,10 @@ class NetworkVisualizer {
         const arrowStartX = fromPos.x + ndx * fromRadius;
         const arrowStartY = fromPos.y + ndy * fromRadius;
 
-        const arrowLength = (length - fromRadius - toRadius) * (this.arrowLengthPercent / 100);
+        const availableLength = Math.max(0, length - fromRadius - toRadius);
+        const arrowLength = availableLength > 0
+            ? Math.min(availableLength, Math.max(8, availableLength * (this.arrowLengthPercent / 100)))
+            : 8;
         const arrowEndX = arrowStartX + ndx * arrowLength;
         const arrowEndY = arrowStartY + ndy * arrowLength;
 
@@ -2086,7 +2108,8 @@ class NetworkVisualizer {
                 edgeDirections.set(edge, { start: edge.end, end: edge.start });
                 artnetOutputs.set(edge.end, (artnetOutputs.get(edge.end) || 0) + 1);
             } else {
-                edgeDirections.set(edge, { start: null, end: null });
+                // Both endpoints are regular nodes: use edge's natural direction for arrow display
+                edgeDirections.set(edge, { start: edge.start, end: edge.end });
             }
         }
 
@@ -2133,7 +2156,7 @@ class NetworkVisualizer {
             const rowAmps = new Map();
             for (const edge of this.edges) {
                 const dir = edgeDirections.get(edge);
-                if (dir && dir.start) {
+                if (dir && dir.start && artnetSet.has(dir.start)) {
                     const y = this.parseNode(dir.start).y;
                     rowAmps.set(y, (rowAmps.get(y) || 0) + 1);
                 }
@@ -2272,40 +2295,25 @@ class NetworkVisualizer {
                             const dataStart = dir.start;
                             const dataEnd = dir.end;
 
-                            if (nodeToArtnetNeighbors.has(dataEnd)) {
-                                const altOptions = [];
-                                for (const altArtnet of nodeToArtnetNeighbors.get(dataEnd)) {
-                                    if (altArtnet === dataStart) continue;
+                            if (!artnetSet.has(dataStart) || !artnetSet.has(dataEnd)) continue;
 
-                                    const altRow = this.parseNode(altArtnet).y;
-                                    const altRowAmps = rowAmps.get(altRow) || 0;
-                                    const altNodeOutputs = nodeOutputs.get(altArtnet) || 0;
+                            const targetRow = this.parseNode(dataEnd).y;
+                            const targetRowAmps = rowAmps.get(targetRow) || 0;
+                            const targetNodeOutputs = nodeOutputs.get(dataEnd) || 0;
 
-                                    if (altRowAmps < maxAmpsPerRow && altNodeOutputs < maxOutputsPerNode) {
-                                        let priority = 0;
-                                        if (neighborRows.includes(altRow)) priority = 100;
-                                        priority -= altRowAmps;
-                                        altOptions.push({ priority, altArtnet, altRow, altRowAmps });
-                                    }
-                                }
+                            if (targetRowAmps < maxAmpsPerRow &&
+                                targetNodeOutputs < maxOutputsPerNode &&
+                                targetRowAmps < highAmps) {
 
-                                altOptions.sort((a, b) => b.priority - a.priority);
-
-                                for (const { altArtnet, altRow, altRowAmps } of altOptions) {
-                                    if (altRowAmps < highAmps) {
-                                        edgeDirections.set(edge, { start: altArtnet, end: dataEnd });
-                                        rowAmps.set(highRowY, rowAmps.get(highRowY) - 1);
-                                        rowAmps.set(altRow, (rowAmps.get(altRow) || 0) + 1);
-                                        nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
-                                        nodeOutputs.set(altArtnet, (nodeOutputs.get(altArtnet) || 0) + 1);
-                                        improvements++;
-                                        madeImprovement = true;
-                                        break;
-                                    }
-                                }
+                                edgeDirections.set(edge, { start: dataEnd, end: dataStart });
+                                rowAmps.set(highRowY, rowAmps.get(highRowY) - 1);
+                                rowAmps.set(targetRow, (rowAmps.get(targetRow) || 0) + 1);
+                                nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
+                                nodeOutputs.set(dataEnd, (nodeOutputs.get(dataEnd) || 0) + 1);
+                                improvements++;
+                                madeImprovement = true;
+                                break;
                             }
-
-                            if (madeImprovement) break;
                         }
 
                         if (madeImprovement) break;
@@ -2373,34 +2381,31 @@ class NetworkVisualizer {
                         const dataStart = dir.start;
                         const dataEnd = dir.end;
 
-                        if (nodeToArtnetNeighbors.has(dataEnd)) {
-                            for (const altArtnet of nodeToArtnetNeighbors.get(dataEnd)) {
-                                if (altArtnet === dataStart) continue;
+                        if (!artnetSet.has(dataStart) || !artnetSet.has(dataEnd)) continue;
 
-                                const altRow = this.parseNode(altArtnet).y;
-                                const altRowAmps = rowAmps.get(altRow) || 0;
-                                const altNodeOutputs = nodeOutputs.get(altArtnet) || 0;
+                        const targetRow = this.parseNode(dataEnd).y;
+                        const targetRowAmps = rowAmps.get(targetRow) || 0;
+                        const targetNodeOutputs = nodeOutputs.get(dataEnd) || 0;
 
-                                if (altRowAmps < maxAmpsPerRow && altNodeOutputs < maxOutputsPerNode) {
-                                    edgeDirections.set(edge, { start: altArtnet, end: dataEnd });
-                                    rowAmps.set(rowY, rowAmps.get(rowY) - 1);
-                                    rowAmps.set(altRow, (rowAmps.get(altRow) || 0) + 1);
-                                    nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
-                                    nodeOutputs.set(altArtnet, (nodeOutputs.get(altArtnet) || 0) + 1);
-                                    improvements++;
-                                    madeImprovement = true;
-                                    break;
-                                }
-                            }
+                        if (targetRowAmps < maxAmpsPerRow &&
+                            targetNodeOutputs < maxOutputsPerNode &&
+                            targetRowAmps < rowAmps.get(rowY)) {
+
+                            edgeDirections.set(edge, { start: dataEnd, end: dataStart });
+                            rowAmps.set(rowY, rowAmps.get(rowY) - 1);
+                            rowAmps.set(targetRow, (rowAmps.get(targetRow) || 0) + 1);
+                            nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
+                            nodeOutputs.set(dataEnd, (nodeOutputs.get(dataEnd) || 0) + 1);
+                            improvements++;
+                            madeImprovement = true;
+                            break;
                         }
-
-                        if (madeImprovement) break;
                     }
 
                     if (madeImprovement) break;
                 }
 
-                // Fix node violations
+                // Fix node violations by flipping edges where both endpoints are ArtNet
                 if (!madeImprovement) {
                     for (const [node, count] of nodeViolations) {
                         if (count <= maxOutputsPerNode) continue;
@@ -2415,28 +2420,24 @@ class NetworkVisualizer {
                             const dataStart = dir.start;
                             const dataEnd = dir.end;
 
-                            if (nodeToArtnetNeighbors.has(dataEnd)) {
-                                for (const altArtnet of nodeToArtnetNeighbors.get(dataEnd)) {
-                                    if (altArtnet === dataStart) continue;
+                            if (!artnetSet.has(dataStart) || !artnetSet.has(dataEnd)) continue;
 
-                                    const altRow = this.parseNode(altArtnet).y;
-                                    const altRowAmps = rowAmps.get(altRow) || 0;
-                                    const altNodeOutputs = nodeOutputs.get(altArtnet) || 0;
+                            const targetRow = this.parseNode(dataEnd).y;
+                            const targetRowAmps = rowAmps.get(targetRow) || 0;
+                            const targetNodeOutputs = nodeOutputs.get(dataEnd) || 0;
 
-                                    if (altRowAmps < maxAmpsPerRow && altNodeOutputs < maxOutputsPerNode) {
-                                        edgeDirections.set(edge, { start: altArtnet, end: dataEnd });
-                                        rowAmps.set(this.parseNode(dataStart).y, rowAmps.get(this.parseNode(dataStart).y) - 1);
-                                        rowAmps.set(altRow, (rowAmps.get(altRow) || 0) + 1);
-                                        nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
-                                        nodeOutputs.set(altArtnet, (nodeOutputs.get(altArtnet) || 0) + 1);
-                                        improvements++;
-                                        madeImprovement = true;
-                                        break;
-                                    }
-                                }
+                            if (targetNodeOutputs < maxOutputsPerNode &&
+                                targetRowAmps < maxAmpsPerRow) {
+
+                                edgeDirections.set(edge, { start: dataEnd, end: dataStart });
+                                rowAmps.set(this.parseNode(dataStart).y, rowAmps.get(this.parseNode(dataStart).y) - 1);
+                                rowAmps.set(targetRow, (rowAmps.get(targetRow) || 0) + 1);
+                                nodeOutputs.set(dataStart, nodeOutputs.get(dataStart) - 1);
+                                nodeOutputs.set(dataEnd, (nodeOutputs.get(dataEnd) || 0) + 1);
+                                improvements++;
+                                madeImprovement = true;
+                                break;
                             }
-
-                            if (madeImprovement) break;
                         }
 
                         if (madeImprovement) break;
@@ -3102,4 +3103,12 @@ class NetworkVisualizer {
 // Initialize when page loads
 window.addEventListener('DOMContentLoaded', () => {
     window.visualizer = new NetworkVisualizer();
+
+    fetch('project-default.json')
+        .then(r => r.ok ? r.text() : Promise.reject('No default project'))
+        .then(text => {
+            window.visualizer._projectLoaded = true;
+            window.visualizer.loadProject(text);
+        })
+        .catch(() => console.log('No default project found, starting empty'));
 });

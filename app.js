@@ -1108,6 +1108,7 @@ class NetworkVisualizer {
     drawSmartNodeLabels() {
         // Draw connection count labels for ArtNet nodes - drawn AFTER arrows so they appear on top
         const artnetSet = this.artnetOptimization ? new Set(this.artnetOptimization.artnetNodes) : new Set();
+        const psuMeters = 20;
 
         for (const nodeStr of this.nodes) {
             const isArtnet = artnetSet.has(nodeStr);
@@ -1119,12 +1120,28 @@ class NetworkVisualizer {
 
             // Draw connection count BESIDE the node (to the right) - BLACK text
             const arrowCount = this.countArrowsFromNode(nodeStr);
-            this.ctx.fillStyle = '#000000';  // Black text
+            this.ctx.fillStyle = '#000000';
             this.ctx.font = `${this.fontSize}px Arial`;
-            this.ctx.textAlign = 'left';  // Left align so text starts to the right
+            this.ctx.textAlign = 'left';
             this.ctx.textBaseline = 'middle';
-            // Position text to the right of the rectangle
             this.ctx.fillText(arrowCount.toString(), pos.x + rectSize/2 + 3, pos.y);
+
+            // Calculate PSU count: ceil(total adjusted length / 20m)
+            let totalLength = 0;
+            for (const edge of this.edges) {
+                const dir = this.artnetOptimization.edgeDirections.get(edge);
+                if (dir && dir.start === nodeStr) {
+                    const edgeLength = this.calculateEdgeLength(edge);
+                    totalLength += Math.max(0, edgeLength - this.nodeDiameterOffset);
+                }
+            }
+            const psuCount = Math.ceil(totalLength / psuMeters);
+
+            // Draw PSU count in smaller text to the right of the arrow count
+            const arrowTextWidth = this.ctx.measureText(arrowCount.toString()).width;
+            this.ctx.font = `${Math.max(8, this.fontSize * 0.55)}px Arial`;
+            this.ctx.fillStyle = '#cc0000';
+            this.ctx.fillText(`${psuCount}p`, pos.x + rectSize/2 + 3 + arrowTextWidth + 3, pos.y);
         }
     }
 
@@ -2544,8 +2561,24 @@ class NetworkVisualizer {
         if (this.artnetOptimization) {
             const artnetCount = this.artnetOptimization.artnetNodes ? this.artnetOptimization.artnetNodes.length : 0;
             const endCount = this.artnetOptimization.endNodes ? this.artnetOptimization.endNodes.length : 0;
+            // Calculate total PSUs across all smart nodes
+            let totalPSUs = 0;
+            const psuMeters = 20;
+            for (const nodeStr of this.artnetOptimization.artnetNodes) {
+                let nodeLength = 0;
+                for (const edge of this.edges) {
+                    const dir = this.artnetOptimization.edgeDirections.get(edge);
+                    if (dir && dir.start === nodeStr) {
+                        const edgeLength = this.calculateEdgeLength(edge);
+                        nodeLength += Math.max(0, edgeLength - this.nodeDiameterOffset);
+                    }
+                }
+                totalPSUs += Math.ceil(nodeLength / psuMeters);
+            }
+
             info += `\nArtNet Nodes: ${artnetCount}\n`;
             info += `End Nodes: ${endCount}\n`;
+            info += `PSUs (${psuMeters}m each): ${totalPSUs}\n`;
 
             if (this.artnetOptimization.directionViolations && this.artnetOptimization.directionViolations.length > 0) {
                 info += `⚠️ ${this.artnetOptimization.directionViolations.length} nodes > 4 ports\n`;

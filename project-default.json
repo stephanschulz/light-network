@@ -21,7 +21,7 @@
     "showNodeTotalLength": false,
     "showLedRings": true,
     "intercomEditMode": false,
-    "edgeFlipMode": true,
+    "edgeFlipMode": false,
     "selectedLengthGroup": -1
   },
   "intercomNodeIds": [

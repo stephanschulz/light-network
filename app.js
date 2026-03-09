@@ -40,6 +40,8 @@ class NetworkVisualizer {
         this.showGrid = true;
         this.showEdges = true;
         this.showNodeIds = true;
+        this.showPSUCount = true;
+        this.showEdgeCount = true;
         this.selectedLengthGroup = -1;
 
         // Optimization results
@@ -134,6 +136,14 @@ class NetworkVisualizer {
 
         document.getElementById('showNodeIds').addEventListener('change', (e) => {
             this.showNodeIds = e.target.checked;
+            this.drawNetwork();
+        });
+        document.getElementById('showPSUCount').addEventListener('change', (e) => {
+            this.showPSUCount = e.target.checked;
+            this.drawNetwork();
+        });
+        document.getElementById('showEdgeCount').addEventListener('change', (e) => {
+            this.showEdgeCount = e.target.checked;
             this.drawNetwork();
         });
 
@@ -1118,13 +1128,21 @@ class NetworkVisualizer {
             const pos = this.worldToCanvas(node.x, node.y);
             const rectSize = this.nodeDiameter * this.scale;
 
-            // Draw connection count BESIDE the node (to the right) - BLACK text
             const arrowCount = this.countArrowsFromNode(nodeStr);
-            this.ctx.fillStyle = '#000000';
+            const baseX = pos.x + rectSize/2 + 3;
+
             this.ctx.font = `${this.fontSize}px Arial`;
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(arrowCount.toString(), pos.x + rectSize/2 + 3, pos.y);
+            const edgeCountWidth = this.ctx.measureText(arrowCount.toString()).width;
+
+            if (this.showEdgeCount) {
+                this.ctx.fillStyle = '#000000';
+                this.ctx.textAlign = 'left';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(arrowCount.toString(), baseX, pos.y);
+            }
+
+            // PSU count always uses the same x position (right of where edge count would be)
+            const psuX = baseX + edgeCountWidth + 3;
 
             // Calculate PSU count: ceil(total adjusted length / 20m)
             let totalLength = 0;
@@ -1137,11 +1155,11 @@ class NetworkVisualizer {
             }
             const psuCount = Math.ceil(totalLength / psuMeters);
 
-            // Draw PSU count in smaller text to the right of the arrow count
-            const arrowTextWidth = this.ctx.measureText(arrowCount.toString()).width;
-            this.ctx.font = `${Math.max(8, this.fontSize * 0.55)}px Arial`;
-            this.ctx.fillStyle = '#cc0000';
-            this.ctx.fillText(`${psuCount}p`, pos.x + rectSize/2 + 3 + arrowTextWidth + 3, pos.y);
+            if (this.showPSUCount) {
+                this.ctx.font = `${Math.max(10, this.fontSize * 0.75)}px Arial`;
+                this.ctx.fillStyle = '#000000';
+                this.ctx.fillText(`${psuCount}p`, psuX, pos.y);
+            }
         }
     }
 
@@ -2765,6 +2783,8 @@ class NetworkVisualizer {
                 showArtnetNodes: this.showArtnetNodes,
                 showGrid: this.showGrid,
                 showNodeIds: this.showNodeIds,
+                showPSUCount: this.showPSUCount,
+                showEdgeCount: this.showEdgeCount,
                 showDataCables: this.showDataCables,
                 showEdges: this.showEdges,
                 showEdgeLengths: this.showEdgeLengths,
@@ -2933,6 +2953,14 @@ class NetworkVisualizer {
             if (t.showNodeIds !== undefined) {
                 this.showNodeIds = t.showNodeIds;
                 document.getElementById('showNodeIds').checked = t.showNodeIds;
+            }
+            if (t.showPSUCount !== undefined) {
+                this.showPSUCount = t.showPSUCount;
+                document.getElementById('showPSUCount').checked = t.showPSUCount;
+            }
+            if (t.showEdgeCount !== undefined) {
+                this.showEdgeCount = t.showEdgeCount;
+                document.getElementById('showEdgeCount').checked = t.showEdgeCount;
             }
             if (t.showDataCables !== undefined) {
                 this.showDataCables = t.showDataCables;

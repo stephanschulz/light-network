@@ -1026,14 +1026,7 @@ class NetworkVisualizer {
             this.ctx.font = `${Math.max(9, this.fontSize * 0.5)}px Arial`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            
-            // Background for readability
             const text = adjustedLength.toFixed(2);
-            const textWidth = this.ctx.measureText(text).width;
-            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-            this.ctx.fillRect(midX - textWidth/2 - 2, midY - 7, textWidth + 4, 14);
-            
-            // Text: adjusted length (edge length minus node diameter)
             this.ctx.fillStyle = '#333';
             this.ctx.fillText(text, midX, midY);
         }

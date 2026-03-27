@@ -33,6 +33,7 @@ class NetworkVisualizer {
         this.arrowWidth = 0.3;  // Hardcoded
         this.arrowLengthPercent = 50;
         this.fontSize = 20;  // Default 20
+        this.edgeLengthFontSize = 10;  // Edge midpoint meter labels (Show Edge Lengths)
 
         // Display options
         this.showArtnetNodes = false;
@@ -120,6 +121,12 @@ class NetworkVisualizer {
         document.getElementById('fontSize').addEventListener('input', (e) => {
             this.fontSize = parseInt(e.target.value);
             document.getElementById('fontSizeValue').textContent = this.fontSize;
+            this.drawNetwork();
+        });
+
+        document.getElementById('edgeLengthFontSize').addEventListener('input', (e) => {
+            this.edgeLengthFontSize = parseInt(e.target.value, 10);
+            document.getElementById('edgeLengthFontSizeValue').textContent = this.edgeLengthFontSize;
             this.drawNetwork();
         });
 
@@ -1023,7 +1030,7 @@ class NetworkVisualizer {
             const midX = (startPos.x + endPos.x) / 2;
             const midY = (startPos.y + endPos.y) / 2;
             
-            this.ctx.font = `${Math.max(9, this.fontSize * 0.5)}px Arial`;
+            this.ctx.font = `${this.edgeLengthFontSize}px Arial`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             const text = adjustedLength.toFixed(2);
@@ -2766,6 +2773,7 @@ class NetworkVisualizer {
                 nodeDiameter: this.nodeDiameter,
                 arrowLengthPercent: this.arrowLengthPercent,
                 fontSize: this.fontSize,
+                edgeLengthFontSize: this.edgeLengthFontSize,
                 nodeDiameterOffset: this.nodeDiameterOffset,
                 wattsPerMeter: this.wattsPerMeter,
                 voltage: this.voltage,
@@ -2917,6 +2925,11 @@ class NetworkVisualizer {
                 this.fontSize = s.fontSize;
                 document.getElementById('fontSize').value = s.fontSize;
                 document.getElementById('fontSizeValue').textContent = s.fontSize;
+            }
+            if (s.edgeLengthFontSize !== undefined) {
+                this.edgeLengthFontSize = s.edgeLengthFontSize;
+                document.getElementById('edgeLengthFontSize').value = s.edgeLengthFontSize;
+                document.getElementById('edgeLengthFontSizeValue').textContent = s.edgeLengthFontSize;
             }
             if (s.nodeDiameterOffset !== undefined) {
                 this.nodeDiameterOffset = s.nodeDiameterOffset;

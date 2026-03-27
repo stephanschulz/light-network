@@ -5,6 +5,7 @@
     "nodeDiameter": 2,
     "arrowLengthPercent": 69,
     "fontSize": 20,
+    "edgeLengthFontSize": 10,
     "nodeDiameterOffset": 0.8,
     "wattsPerMeter": 12,
     "voltage": 120,

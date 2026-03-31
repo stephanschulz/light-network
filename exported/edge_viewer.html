@@ -17,6 +17,14 @@
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
     font-size: 16px; color: #aaa; display: none;
   }
+  #tooltip {
+    position: absolute; display: none; pointer-events: none;
+    background: rgba(0,0,0,0.85); padding: 8px 12px; border-radius: 5px;
+    font-size: 12px; line-height: 1.5; white-space: pre; color: #ddd;
+    border: 1px solid #444; max-width: 340px;
+  }
+  #tooltip .tt-head { color: #fff; font-weight: bold; font-size: 13px; }
+  #tooltip .tt-dim  { color: #888; }
 </style>
 </head>
 <body>
@@ -29,6 +37,7 @@
   <span class="label">Drag to rotate · Scroll to zoom · Right-drag to pan</span>
 </div>
 <div id="status">Loading CSV…</div>
+<div id="tooltip"></div>
 
 <script type="importmap">
 {
@@ -73,9 +82,11 @@ async function loadCSV() {
       id: +cols[0],
       start: new THREE.Vector3(+cols[1], +cols[3], +cols[2]),
       startType: cols[4].trim(),
+      startNodeId: startNodeId,
       startLabel: cols[6].trim(),
       end:   new THREE.Vector3(+cols[7], +cols[9], +cols[8]),
       endType: cols[10].trim(),
+      endNodeId: endNodeId,
       endLabel: cols[12].trim(),
       length: +cols[13],
       ringDiameter: +cols[15],
@@ -83,6 +94,8 @@ async function loadCSV() {
       stripEnd:   new THREE.Vector3(+cols[19], +cols[21], +cols[20]),
       flowReversed,
       hasFlow: flowStartId !== 'No Flow',
+      flowStartId: flowStartId,
+      flowEndId: flowEndId,
     });
   }
   return edges;
@@ -90,19 +103,37 @@ async function loadCSV() {
 
 function collectNodes(edges) {
   const nodeMap = new Map();
+  const nodeIdToLabel = new Map();
+
   for (const e of edges) {
+    nodeIdToLabel.set(e.startNodeId, e.startLabel);
+    nodeIdToLabel.set(e.endNodeId, e.endLabel);
     const pairs = [
-      { pt: e.start, type: e.startType, label: e.startLabel },
-      { pt: e.end,   type: e.endType,   label: e.endLabel },
+      { pt: e.start, type: e.startType, label: e.startLabel, nodeId: e.startNodeId },
+      { pt: e.end,   type: e.endType,   label: e.endLabel,   nodeId: e.endNodeId },
     ];
-    for (const { pt, type, label } of pairs) {
+    for (const { pt, type, label, nodeId } of pairs) {
       const key = `${pt.x.toFixed(4)},${pt.y.toFixed(4)},${pt.z.toFixed(4)}`;
       if (!nodeMap.has(key)) {
-        nodeMap.set(key, { position: pt.clone(), type, label, diameter: e.ringDiameter });
+        nodeMap.set(key, {
+          position: pt.clone(), type, label, nodeId, diameter: e.ringDiameter,
+          edgeIds: [], flowStartCount: 0,
+        });
       }
+      nodeMap.get(key).edgeIds.push(e.id);
     }
   }
-  return nodeMap;
+
+  // Count how many times each node is a data flow start (output) point
+  for (const e of edges) {
+    if (e.flowStartId === 'No Flow') continue;
+    const fid = +e.flowStartId;
+    for (const n of nodeMap.values()) {
+      if (n.nodeId === fid) { n.flowStartCount++; break; }
+    }
+  }
+
+  return { nodeMap, nodeIdToLabel };
 }
 
 function buildScene(edges) {
@@ -224,7 +255,7 @@ function buildScene(edges) {
   scene.add(entranceLabel);
 
   // --- Nodes (small spheres) ---
-  const nodeMap = collectNodes(edges);
+  const { nodeMap, nodeIdToLabel } = collectNodes(edges);
   const dotGeo = new THREE.SphereGeometry(0.15, 8, 6);
   const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const instancedMesh = new THREE.InstancedMesh(dotGeo, dotMat, nodeMap.size);
@@ -306,14 +337,45 @@ function buildScene(edges) {
   document.getElementById('regularCount').textContent = regularCount;
   document.getElementById('nodeCount').textContent = nodeMap.size;
 
-  return { scene, groups, nodeMap, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth };
+  // --- Hit-test geometry for hover tooltips ---
+  const hitGroup = new THREE.Group();
+  hitGroup.name = 'hit';
+  scene.add(hitGroup);
+  const hitMat = new THREE.MeshBasicMaterial({ opacity: 0, transparent: true, depthWrite: false });
+
+  // Edge hit cylinders
+  const cylGeo = new THREE.CylinderGeometry(0.3, 0.3, 1, 6);
+  cylGeo.rotateX(Math.PI / 2);
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i];
+    const mid = new THREE.Vector3().addVectors(e.start, e.end).multiplyScalar(0.5);
+    const len = e.start.distanceTo(e.end);
+    const d = new THREE.Vector3().subVectors(e.end, e.start).normalize();
+    const mesh = new THREE.Mesh(cylGeo, hitMat);
+    mesh.position.copy(mid);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d);
+    mesh.scale.set(1, 1, len);
+    mesh.userData = { kind: 'edge', index: i };
+    hitGroup.add(mesh);
+  }
+
+  // Node hit spheres
+  const hitSphereGeo = new THREE.SphereGeometry(0.5, 6, 4);
+  for (const [key, n] of nodeMap) {
+    const mesh = new THREE.Mesh(hitSphereGeo, hitMat);
+    mesh.position.copy(n.position);
+    mesh.userData = { kind: 'node', key };
+    hitGroup.add(mesh);
+  }
+
+  return { scene, groups, nodeMap, nodeIdToLabel, hitGroup, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth };
 }
 
 async function main() {
   const edges = await loadCSV();
   hideStatus();
 
-  const { scene, groups, nodeMap, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth } = buildScene(edges);
+  const { scene, groups, nodeMap, nodeIdToLabel, hitGroup, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth } = buildScene(edges);
 
   const box = new THREE.Box3();
   for (const e of edges) { box.expandByPoint(e.start); box.expandByPoint(e.end); }
@@ -370,6 +432,63 @@ async function main() {
   rebuildLabels(params.labelSize);
   for (const mat of stripMaterials) mat.linewidth = params.tubeDiameter;
   createRings(nodeMap, 'Intercom', params.intercomDiameter);
+
+  // --- Hover tooltip ---
+  const tooltipEl = document.getElementById('tooltip');
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  function formatTooltipEdge(e) {
+    const flowStartLabel = nodeIdToLabel.get(+e.flowStartId) || e.flowStartId;
+    const flowEndLabel   = nodeIdToLabel.get(+e.flowEndId) || e.flowEndId;
+    return `<span class="tt-head">Edge ${e.id}</span>\n` +
+      `<span class="tt-dim">Length:</span> ${e.length.toFixed(2)} m\n` +
+      `<span class="tt-dim">Start:</span> ${e.startLabel} (id ${e.startNodeId}) — ${e.startType}\n` +
+      `<span class="tt-dim">End:</span> ${e.endLabel} (id ${e.endNodeId}) — ${e.endType}\n` +
+      `<span class="tt-dim">Flow:</span> ${flowStartLabel} → ${flowEndLabel}`;
+  }
+
+  function formatTooltipNode(n) {
+    const p = n.position;
+    const edgeList = [...new Set(n.edgeIds)].join(', ');
+    return `<span class="tt-head">${n.label}</span> <span class="tt-dim">(id ${n.nodeId})</span>\n` +
+      `<span class="tt-dim">Type:</span> ${n.type}\n` +
+      `<span class="tt-dim">Position:</span> ${p.x.toFixed(2)}, ${p.z.toFixed(2)}, ${p.y.toFixed(2)}\n` +
+      `<span class="tt-dim">Edges:</span> ${edgeList}\n` +
+      `<span class="tt-dim">Data flow outputs:</span> ${n.flowStartCount}`;
+  }
+
+  renderer.domElement.addEventListener('mousemove', (ev) => {
+    mouse.x = (ev.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+
+    // Raycast against invisible hit geometry (nodes first for priority)
+    const hits = raycaster.intersectObjects(hitGroup.children, false);
+    if (hits.length > 0) {
+      // Prefer node hits over edge hits
+      const nodeHit = hits.find(h => h.object.userData.kind === 'node');
+      const hit = nodeHit || hits[0];
+      const ud = hit.object.userData;
+
+      let html;
+      if (ud.kind === 'node') {
+        html = formatTooltipNode(nodeMap.get(ud.key));
+      } else {
+        html = formatTooltipEdge(edges[ud.index]);
+      }
+      tooltipEl.innerHTML = html;
+      tooltipEl.style.display = 'block';
+      tooltipEl.style.left = (ev.clientX + 14) + 'px';
+      tooltipEl.style.top  = (ev.clientY + 14) + 'px';
+    } else {
+      tooltipEl.style.display = 'none';
+    }
+  });
+
+  renderer.domElement.addEventListener('mouseleave', () => {
+    tooltipEl.style.display = 'none';
+  });
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;

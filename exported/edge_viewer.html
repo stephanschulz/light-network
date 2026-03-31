@@ -60,17 +60,28 @@ async function loadCSV() {
   const edges = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    if (cols.length < 20) continue;
+    if (cols.length < 22) continue;
+    const startNodeId = +cols[5];
+    const endNodeId = +cols[10];
+    const flowStartId = cols[20].trim();
+    const flowEndId = cols[21].trim();
+    // Determine arrow direction: does flow go start→end or end→start?
+    let flowReversed = false;
+    if (flowStartId !== 'No Flow' && flowEndId !== 'No Flow') {
+      flowReversed = (+flowStartId === endNodeId);
+    }
     edges.push({
       id: +cols[0],
       start: new THREE.Vector3(+cols[1], +cols[3], +cols[2]),
       startType: cols[4].trim(),
-      end:   new THREE.Vector3(+cols[5], +cols[7], +cols[6]),
-      endType: cols[8].trim(),
-      length: +cols[9],
-      ringDiameter: +cols[11],
-      stripStart: new THREE.Vector3(+cols[12], +cols[14], +cols[13]),
-      stripEnd:   new THREE.Vector3(+cols[15], +cols[17], +cols[16]),
+      end:   new THREE.Vector3(+cols[6], +cols[8], +cols[7]),
+      endType: cols[9].trim(),
+      length: +cols[11],
+      ringDiameter: +cols[13],
+      stripStart: new THREE.Vector3(+cols[14], +cols[16], +cols[15]),
+      stripEnd:   new THREE.Vector3(+cols[17], +cols[19], +cols[18]),
+      flowReversed,
+      hasFlow: flowStartId !== 'No Flow',
     });
   }
   return edges;
@@ -100,16 +111,12 @@ function buildScene(edges) {
   const groups = {
     edges: new THREE.Group(),
     strips: new THREE.Group(),
+    arrows: new THREE.Group(),
     normalRings: new THREE.Group(),
     intercomRings: new THREE.Group(),
     nodes: new THREE.Group(),
   };
-  groups.edges.name = 'edges';
-  groups.strips.name = 'strips';
-  groups.normalRings.name = 'normalRings';
-  groups.intercomRings.name = 'intercomRings';
-  groups.nodes.name = 'nodes';
-  for (const g of Object.values(groups)) scene.add(g);
+  for (const [k, g] of Object.entries(groups)) { g.name = k; scene.add(g); }
 
   const colorIntercom = new THREE.Color(0xff7043);
   const colorArtNet    = new THREE.Color(0x4fc3f7);
@@ -166,6 +173,53 @@ function buildScene(edges) {
     stripMaterials.push(line.material);
     groups.strips.add(line);
   }
+
+  // --- Data flow arrows at edge midpoints ---
+  const arrowGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+  arrowGeo.rotateX(Math.PI / 2);
+  const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffee58 });
+  const arrowMesh = new THREE.InstancedMesh(arrowGeo, arrowMat, edges.length);
+  const arrowObj = new THREE.Object3D();
+  const dir = new THREE.Vector3();
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i];
+    const mid = new THREE.Vector3().addVectors(e.start, e.end).multiplyScalar(0.5);
+    // Arrow points from flow source to flow target
+    if (e.flowReversed) {
+      dir.subVectors(e.start, e.end).normalize();
+    } else {
+      dir.subVectors(e.end, e.start).normalize();
+    }
+    arrowObj.position.copy(mid);
+    arrowObj.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    arrowObj.updateMatrix();
+    arrowMesh.setMatrixAt(i, arrowObj.matrix);
+  }
+  groups.arrows.add(arrowMesh);
+
+  // --- Labels ---
+  function makeTextSprite(text, fontSize = 64, color = '#ffffff') {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.font = `bold ${fontSize}px monospace`;
+    const metrics = ctx.measureText(text);
+    canvas.width = Math.ceil(metrics.width) + 20;
+    canvas.height = fontSize * 1.4;
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 10, canvas.height / 2);
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(canvas.width / canvas.height * 3, 3, 1);
+    return sprite;
+  }
+
+  const entranceLabel = makeTextSprite('ENTRANCE', 64, '#ffee58');
+  entranceLabel.position.set(102.8, 4.86, 40.0);
+  entranceLabel.position.x += 4;
+  scene.add(entranceLabel);
 
   // --- Nodes (small spheres) ---
   const nodeMap = collectNodes(edges);
@@ -267,10 +321,11 @@ async function main() {
   const params = {
     showEdges: true,
     showLEDTubes: true,
+    showArrows: true,
     showNormalRings: true,
     showIntercomRings: true,
     showNodes: false,
-    tubeDiameter: 0.11,
+    tubeDiameter: 0.2,
     intercomDiameter: 2.5,
   };
 
@@ -280,6 +335,7 @@ async function main() {
   gui.add(params, 'tubeDiameter', 0.02, 1.0, 0.01).name('LED Tube ⌀ (m)').onChange(v => {
     for (const mat of stripMaterials) mat.linewidth = v;
   });
+  gui.add(params, 'showArrows').name('Data Flow Arrows').onChange(v => { groups.arrows.visible = v; });
   gui.add(params, 'showNormalRings').name('ArtNet/Regular Rings').onChange(v => { groups.normalRings.visible = v; });
   gui.add(params, 'showIntercomRings').name('Intercom Rings').onChange(v => { groups.intercomRings.visible = v; });
   gui.add(params, 'showNodes').name('Node Dots').onChange(v => { groups.nodes.visible = v; });

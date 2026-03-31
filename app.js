@@ -2697,7 +2697,7 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'ID,start_X,start_Y,start_Z,start_node_type,end_X,end_Y,end_Z,end_node_type,Edge_Length,Length_Adjusted_m,LED_Ring_Diameter_m,strip_start_x,strip_start_y,strip_start_z,strip_end_x,strip_end_y,strip_end_z,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID\n';
+        let csv = 'ID,start_X,start_Y,start_Z,start_node_type,start_node_id,end_X,end_Y,end_Z,end_node_type,end_node_id,Edge_Length,Length_Adjusted_m,LED_Ring_Diameter_m,strip_start_x,strip_start_y,strip_start_z,strip_end_x,strip_end_y,strip_end_z,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID\n';
 
         // Calculate center Y for flipping
         const centerY = (this.worldMinY + this.worldMaxY) / 2;
@@ -2725,6 +2725,8 @@ class NetworkVisualizer {
 
             const startType = nodeType(edge.start);
             const endType = nodeType(edge.end);
+            const startNodeId = this.nodeIds.get(edge.start) || '?';
+            const endNodeId = this.nodeIds.get(edge.end) || '?';
 
             const isIntercom = this.intercomEdges.includes(edge);
             let flowStartId, flowEndId;
@@ -2751,7 +2753,7 @@ class NetworkVisualizer {
                 }
             }
 
-            csv += `${edgeId},${start.x},${startY},${start.z},${startType},${end.x},${endY},${end.z},${endType},${length.toFixed(2)},${adjustedLength.toFixed(2)},${this.nodeDiameterOffset.toFixed(2)},${stripStart.x.toFixed(6)},${stripSy.toFixed(6)},${stripStart.z.toFixed(6)},${stripEnd.x.toFixed(6)},${stripEy.toFixed(6)},${stripEnd.z.toFixed(6)},${flowStartId},${flowEndId}\n`;
+            csv += `${edgeId},${start.x},${startY},${start.z},${startType},${startNodeId},${end.x},${endY},${end.z},${endType},${endNodeId},${length.toFixed(2)},${adjustedLength.toFixed(2)},${this.nodeDiameterOffset.toFixed(2)},${stripStart.x.toFixed(6)},${stripSy.toFixed(6)},${stripStart.z.toFixed(6)},${stripEnd.x.toFixed(6)},${stripEy.toFixed(6)},${stripEnd.z.toFixed(6)},${flowStartId},${flowEndId}\n`;
         }
 
         this.downloadCSV('edge_data_export.csv', csv);

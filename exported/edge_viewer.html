@@ -22,9 +22,10 @@
 <body>
 <div id="info">
   <span class="label">Edges:</span> <span id="edgeCount">0</span> &nbsp;
-  <span class="label">Normal:</span> <span id="normalCount" style="color:#4fc3f7">0</span> &nbsp;
-  <span class="label">Intercom:</span> <span id="intercomCount" style="color:#ff7043">0</span> &nbsp;
-  <span class="label">Nodes:</span> <span id="nodeCount">0</span><br>
+  <span class="label">Nodes:</span> <span id="nodeCount">0</span>
+  (<span style="color:#ff7043" id="intercomCount">0</span> <span class="label">Intercom,</span>
+   <span style="color:#4fc3f7" id="artnetCount">0</span> <span class="label">ArtNet,</span>
+   <span style="color:#aaa" id="regularCount">0</span> <span class="label">Regular</span>)<br>
   <span class="label">Drag to rotate · Scroll to zoom · Right-drag to pan</span>
 </div>
 <div id="status">Loading CSV…</div>
@@ -59,16 +60,17 @@ async function loadCSV() {
   const edges = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    if (cols.length < 19) continue;
+    if (cols.length < 20) continue;
     edges.push({
       id: +cols[0],
       start: new THREE.Vector3(+cols[1], +cols[3], +cols[2]),
-      end:   new THREE.Vector3(+cols[4], +cols[6], +cols[5]),
-      length: +cols[7],
-      ringDiameter: +cols[9],
-      stripStart: new THREE.Vector3(+cols[10], +cols[12], +cols[11]),
-      stripEnd:   new THREE.Vector3(+cols[13], +cols[15], +cols[14]),
-      type: cols[18].trim()
+      startType: cols[4].trim(),
+      end:   new THREE.Vector3(+cols[5], +cols[7], +cols[6]),
+      endType: cols[8].trim(),
+      length: +cols[9],
+      ringDiameter: +cols[11],
+      stripStart: new THREE.Vector3(+cols[12], +cols[14], +cols[13]),
+      stripEnd:   new THREE.Vector3(+cols[15], +cols[17], +cols[16]),
     });
   }
   return edges;
@@ -77,12 +79,15 @@ async function loadCSV() {
 function collectNodes(edges) {
   const nodeMap = new Map();
   for (const e of edges) {
-    for (const pt of [e.start, e.end]) {
+    const pairs = [
+      { pt: e.start, type: e.startType },
+      { pt: e.end,   type: e.endType },
+    ];
+    for (const { pt, type } of pairs) {
       const key = `${pt.x.toFixed(4)},${pt.y.toFixed(4)},${pt.z.toFixed(4)}`;
       if (!nodeMap.has(key)) {
-        nodeMap.set(key, { position: pt.clone(), isIntercom: false, diameter: e.ringDiameter });
+        nodeMap.set(key, { position: pt.clone(), type, diameter: e.ringDiameter });
       }
-      if (e.type === 'Intercom') nodeMap.get(key).isIntercom = true;
     }
   }
   return nodeMap;
@@ -106,17 +111,24 @@ function buildScene(edges) {
   groups.nodes.name = 'nodes';
   for (const g of Object.values(groups)) scene.add(g);
 
-  const normalColor = new THREE.Color(0x4fc3f7);
-  const intercomColor = new THREE.Color(0xff7043);
-  let normalCount = 0, intercomCount = 0;
+  const colorIntercom = new THREE.Color(0xff7043);
+  const colorArtNet    = new THREE.Color(0x4fc3f7);
+  const colorRegular   = new THREE.Color(0x888888);
+
+  function edgeColor(e) {
+    if (e.startType === 'Intercom' || e.endType === 'Intercom') return colorIntercom;
+    return colorArtNet;
+  }
+  function edgeStripColor(e) {
+    if (e.startType === 'Intercom' || e.endType === 'Intercom') return new THREE.Color(0xffab91);
+    return new THREE.Color(0x80deea);
+  }
 
   // --- Thin edge lines ---
-  const normalPositions = [];
-  const intercomPositions = [];
+  const edgeBuckets = { intercom: [], other: [] };
   for (const e of edges) {
-    const arr = e.type === 'Intercom' ? intercomPositions : normalPositions;
-    arr.push(e.start.x, e.start.y, e.start.z, e.end.x, e.end.y, e.end.z);
-    if (e.type === 'Intercom') intercomCount++; else normalCount++;
+    const bucket = (e.startType === 'Intercom' || e.endType === 'Intercom') ? edgeBuckets.intercom : edgeBuckets.other;
+    bucket.push(e.start.x, e.start.y, e.start.z, e.end.x, e.end.y, e.end.z);
   }
 
   function makeLineSegments(positions, color) {
@@ -125,15 +137,14 @@ function buildScene(edges) {
     return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, linewidth: 1 }));
   }
 
-  if (normalPositions.length) groups.edges.add(makeLineSegments(normalPositions, normalColor));
-  if (intercomPositions.length) groups.edges.add(makeLineSegments(intercomPositions, intercomColor));
+  if (edgeBuckets.other.length) groups.edges.add(makeLineSegments(edgeBuckets.other, colorArtNet));
+  if (edgeBuckets.intercom.length) groups.edges.add(makeLineSegments(edgeBuckets.intercom, colorIntercom));
 
   // --- Fat strip / LED tube lines ---
-  const stripNormalPos = [];
-  const stripIntercomPos = [];
+  const stripBuckets = { intercom: [], other: [] };
   for (const e of edges) {
-    const arr = e.type === 'Intercom' ? stripIntercomPos : stripNormalPos;
-    arr.push(e.stripStart.x, e.stripStart.y, e.stripStart.z, e.stripEnd.x, e.stripEnd.y, e.stripEnd.z);
+    const bucket = (e.startType === 'Intercom' || e.endType === 'Intercom') ? stripBuckets.intercom : stripBuckets.other;
+    bucket.push(e.stripStart.x, e.stripStart.y, e.stripStart.z, e.stripEnd.x, e.stripEnd.y, e.stripEnd.z);
   }
 
   function makeFatLineSegments(positions, color, width) {
@@ -145,13 +156,13 @@ function buildScene(edges) {
 
   const stripMaterials = [];
   const defaultTubeWidth = 0.35;
-  if (stripNormalPos.length) {
-    const line = makeFatLineSegments(stripNormalPos, new THREE.Color(0x80deea), defaultTubeWidth);
+  if (stripBuckets.other.length) {
+    const line = makeFatLineSegments(stripBuckets.other, new THREE.Color(0x80deea), defaultTubeWidth);
     stripMaterials.push(line.material);
     groups.strips.add(line);
   }
-  if (stripIntercomPos.length) {
-    const line = makeFatLineSegments(stripIntercomPos, new THREE.Color(0xffab91), defaultTubeWidth);
+  if (stripBuckets.intercom.length) {
+    const line = makeFatLineSegments(stripBuckets.intercom, new THREE.Color(0xffab91), defaultTubeWidth);
     stripMaterials.push(line.material);
     groups.strips.add(line);
   }
@@ -175,45 +186,52 @@ function buildScene(edges) {
   const RING_SEGMENTS = 32;
   const RING_TUBE_SEGMENTS = 8;
 
-  function createRings(nodeMap, filterIntercom, diameter) {
-    const group = filterIntercom ? groups.intercomRings : groups.normalRings;
+  const nodeTypeColor = { Intercom: 0xff7043, ArtNet: 0x4fc3f7, Regular: 0x888888 };
+
+  function createRings(nodeMap, filterType, diameter) {
+    const groupKey = filterType === 'Intercom' ? 'intercomRings' : 'normalRings';
+    const group = groups[groupKey];
     while (group.children.length) group.remove(group.children[0]);
 
     const radius = diameter / 2;
     const ringGeo = new THREE.TorusGeometry(radius, RING_TUBE, RING_TUBE_SEGMENTS, RING_SEGMENTS);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: filterIntercom ? 0xff7043 : 0x4fc3f7,
-      transparent: true,
-      opacity: 0.85
-    });
 
+    const typesToDraw = filterType === 'Intercom' ? ['Intercom'] : ['ArtNet', 'Regular'];
     const positions = [];
+    const colors = [];
     for (const n of nodeMap.values()) {
-      if (n.isIntercom !== filterIntercom) continue;
+      if (!typesToDraw.includes(n.type)) continue;
       positions.push(n.position);
+      colors.push(nodeTypeColor[n.type] || 0x4fc3f7);
     }
-
     if (positions.length === 0) return;
 
-    const instanced = new THREE.InstancedMesh(ringGeo, ringMat, positions.length);
-    const obj = new THREE.Object3D();
     for (let i = 0; i < positions.length; i++) {
-      obj.position.copy(positions[i]);
-      obj.rotation.set(Math.PI / 2, 0, 0);
-      obj.updateMatrix();
-      instanced.setMatrixAt(i, obj.matrix);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: colors[i], transparent: true, opacity: 0.85
+      });
+      const mesh = new THREE.Mesh(ringGeo, ringMat);
+      mesh.position.copy(positions[i]);
+      mesh.rotation.set(Math.PI / 2, 0, 0);
+      group.add(mesh);
     }
-    group.add(instanced);
   }
 
   const defaultDiameter = edges[0]?.ringDiameter || 0.80;
-  createRings(nodeMap, false, defaultDiameter);
-  createRings(nodeMap, true, defaultDiameter);
+  createRings(nodeMap, 'ArtNet', defaultDiameter);
+  createRings(nodeMap, 'Intercom', defaultDiameter);
 
   // --- Stats ---
+  let intercomCount = 0, artnetCount = 0, regularCount = 0;
+  for (const n of nodeMap.values()) {
+    if (n.type === 'Intercom') intercomCount++;
+    else if (n.type === 'ArtNet') artnetCount++;
+    else regularCount++;
+  }
   document.getElementById('edgeCount').textContent = edges.length;
-  document.getElementById('normalCount').textContent = normalCount;
   document.getElementById('intercomCount').textContent = intercomCount;
+  document.getElementById('artnetCount').textContent = artnetCount;
+  document.getElementById('regularCount').textContent = regularCount;
   document.getElementById('nodeCount').textContent = nodeMap.size;
 
   return { scene, groups, nodeMap, createRings, defaultDiameter, stripMaterials, defaultTubeWidth };
@@ -251,9 +269,9 @@ async function main() {
     showLEDTubes: true,
     showNormalRings: true,
     showIntercomRings: true,
-    showNodes: true,
-    tubeDiameter: defaultTubeWidth,
-    intercomDiameter: defaultDiameter,
+    showNodes: false,
+    tubeDiameter: 0.11,
+    intercomDiameter: 2.5,
   };
 
   const gui = new GUI({ title: 'Display' });
@@ -262,12 +280,17 @@ async function main() {
   gui.add(params, 'tubeDiameter', 0.02, 1.0, 0.01).name('LED Tube ⌀ (m)').onChange(v => {
     for (const mat of stripMaterials) mat.linewidth = v;
   });
-  gui.add(params, 'showNormalRings').name('Normal Rings').onChange(v => { groups.normalRings.visible = v; });
+  gui.add(params, 'showNormalRings').name('ArtNet/Regular Rings').onChange(v => { groups.normalRings.visible = v; });
   gui.add(params, 'showIntercomRings').name('Intercom Rings').onChange(v => { groups.intercomRings.visible = v; });
   gui.add(params, 'showNodes').name('Node Dots').onChange(v => { groups.nodes.visible = v; });
   gui.add(params, 'intercomDiameter', 0.1, 3.0, 0.01).name('Intercom ⌀ (m)').onChange(v => {
-    createRings(nodeMap, true, v);
+    createRings(nodeMap, 'Intercom', v);
   });
+
+  // Apply defaults
+  groups.nodes.visible = params.showNodes;
+  for (const mat of stripMaterials) mat.linewidth = params.tubeDiameter;
+  createRings(nodeMap, 'Intercom', params.intercomDiameter);
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;

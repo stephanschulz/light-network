@@ -19,6 +19,8 @@ class NetworkVisualizer {
 
         // Visual settings
         this.nodeDiameter = 2;  // Only applies to ArtNet nodes
+        this.nodeDiameterOffset = 0.8; // meters — LED ring trim; matches main app export strip segment
+        this.yFlipped = false; // docs-web has no flip UI; kept for export parity with main app
         this.lineWidth = 0.1;
         this.arrowWidth = 0.3;  // Hardcoded
         this.arrowLengthPercent = 50;
@@ -258,6 +260,18 @@ class NetworkVisualizer {
 
         this.intercomNodes = new Set([...allIntercomNodes].filter(n => !mixedNodes.has(n)));
 
+        // Rebuild intercomEdges: exactly one edge per intercom node
+        this.intercomEdges = [];
+        for (const nodeStr of this.intercomNodes) {
+            for (const edge of this.edges) {
+                if ((edge.start === nodeStr || edge.end === nodeStr) &&
+                    !this.intercomEdges.includes(edge)) {
+                    this.intercomEdges.push(edge);
+                    break;
+                }
+            }
+        }
+
         console.log(`Loaded ${this.nodes.size} nodes and ${this.edges.length} edges`);
         console.log(`Grid: ${sortedX.length}×${sortedY.length} = ${this.gridPoints.length} points`);
 
@@ -291,6 +305,41 @@ class NetworkVisualizer {
 
     calculateEdgeLength(edge) {
         return this.calculateDistance(edge.start, edge.end);
+    }
+
+    /**
+     * Segment between LED-ring trims: half of nodeDiameterOffset from each node along the edge.
+     * adjustedLength matches main app (max(0, edgeLength - nodeDiameterOffset)).
+     */
+    getStripSegmentBetweenRings(edge) {
+        const start = this.parseNode(edge.start);
+        const end = this.parseNode(edge.end);
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const dz = end.z - start.z;
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const adjustedLength = Math.max(0, len - this.nodeDiameterOffset);
+        if (len < 1e-12) {
+            return { adjustedLength: 0, stripStart: { ...start }, stripEnd: { ...end } };
+        }
+        const trim = Math.min(this.nodeDiameterOffset, len);
+        const trimEach = trim / 2;
+        const ux = dx / len;
+        const uy = dy / len;
+        const uz = dz / len;
+        return {
+            adjustedLength,
+            stripStart: {
+                x: start.x + ux * trimEach,
+                y: start.y + uy * trimEach,
+                z: start.z + uz * trimEach,
+            },
+            stripEnd: {
+                x: end.x - ux * trimEach,
+                y: end.y - uy * trimEach,
+                z: end.z - uz * trimEach,
+            },
+        };
     }
 
     calculateLengthGroups() {
@@ -1480,13 +1529,32 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'Edge ID,Edge Length,Start X,Start Y,Start Z,End X,End Y,End Z,Data Flow Start Node ID,Data Flow End Node ID,Type\n';
+        let csv = 'ID,start_X,start_Y,start_Z,start_node_type,end_X,end_Y,end_Z,end_node_type,Edge_Length,Length_Adjusted_m,LED_Ring_Diameter_m,strip_start_x,strip_start_y,strip_start_z,strip_end_x,strip_end_y,strip_end_z,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID\n';
+
+        const centerY = (this.worldMinY + this.worldMaxY) / 2;
+        const flipY = (y) => (this.yFlipped ? (2 * centerY - y) : y);
+
+        const artnetSet = this.artnetOptimization ? new Set(this.artnetOptimization.artnetNodes) : new Set();
+        const nodeType = (nodeStr) => {
+            if (this.intercomNodes.has(nodeStr)) return 'Intercom';
+            if (artnetSet.has(nodeStr)) return 'ArtNet';
+            return 'Regular';
+        };
 
         for (const edge of this.edges) {
             const edgeId = this.edgeIds.get(edge) || '?';
             const start = this.parseNode(edge.start);
             const end = this.parseNode(edge.end);
             const length = this.calculateEdgeLength(edge);
+            const { adjustedLength, stripStart, stripEnd } = this.getStripSegmentBetweenRings(edge);
+
+            const startY = flipY(start.y);
+            const endY = flipY(end.y);
+            const stripSy = flipY(stripStart.y);
+            const stripEy = flipY(stripEnd.y);
+
+            const startType = nodeType(edge.start);
+            const endType = nodeType(edge.end);
 
             const isIntercom = this.intercomEdges.includes(edge);
             let flowStartId, flowEndId;
@@ -1513,9 +1581,7 @@ class NetworkVisualizer {
                 }
             }
 
-            const edgeType = isIntercom ? 'Intercom' : 'Normal';
-
-            csv += `${edgeId},${length.toFixed(2)},${start.x},${start.y},${start.z},${end.x},${end.y},${end.z},${flowStartId},${flowEndId},${edgeType}\n`;
+            csv += `${edgeId},${start.x},${startY},${start.z},${startType},${end.x},${endY},${end.z},${endType},${length.toFixed(2)},${adjustedLength.toFixed(2)},${this.nodeDiameterOffset.toFixed(2)},${stripStart.x.toFixed(6)},${stripSy.toFixed(6)},${stripStart.z.toFixed(6)},${stripEnd.x.toFixed(6)},${stripEy.toFixed(6)},${stripEnd.z.toFixed(6)},${flowStartId},${flowEndId}\n`;
         }
 
         this.downloadCSV('edge_data_export.csv', csv);

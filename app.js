@@ -848,6 +848,26 @@ class NetworkVisualizer {
         return this.nodeGridLabels.get(nodeStr) || `#${this.nodeIds.get(nodeStr) || '?'}`;
     }
 
+    matchPurchaseBin(adjustedLength) {
+        const bins = [
+            { meter: 3.15, pixels: 63 },
+            { meter: 3.85, pixels: 77 },
+            { meter: 5.30, pixels: 106 },
+            { meter: 5.50, pixels: 110 },
+            { meter: 6.47, pixels: 129 },
+            { meter: 6.65, pixels: 133 },
+            { meter: 7.80, pixels: 156 },
+            { meter: 8.00, pixels: 160 },
+        ];
+        let best = bins[0];
+        let bestDist = Math.abs(adjustedLength - best.meter);
+        for (let i = 1; i < bins.length; i++) {
+            const d = Math.abs(adjustedLength - bins[i].meter);
+            if (d < bestDist) { bestDist = d; best = bins[i]; }
+        }
+        return best;
+    }
+
     parseNode(nodeStr) {
         const [x, y, z] = nodeStr.split(',').map(parseFloat);
         return { x, y, z };
@@ -2029,8 +2049,12 @@ class NetworkVisualizer {
             }
         }
 
+        const purchase = this.matchPurchaseBin(adjustedLength);
+
         let text = `Edge: ${edgeId}\n`;
         text += `Strip length: ${adjustedLength.toFixed(2)} m\n`;
+        text += `Purchased length: ${purchase.meter.toFixed(2)} m\n`;
+        text += `Pixels: ${purchase.pixels}\n`;
         text += `Start: ${startLabel} (id ${startId}) — ${nodeType(edge.start)}\n`;
         text += `End: ${endLabel} (id ${endId}) — ${nodeType(edge.end)}\n`;
         text += `Flow: ${flowInfo}`;
@@ -2765,7 +2789,7 @@ class NetworkVisualizer {
             return;
         }
 
-        let csv = 'ID,start_X,start_Y,start_Z,start_node_type,start_node_id,start_label,end_X,end_Y,end_Z,end_node_type,end_node_id,end_label,Edge_Length,Length_Adjusted_m,LED_Ring_Diameter_m,strip_start_x,strip_start_y,strip_start_z,strip_end_x,strip_end_y,strip_end_z,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID\n';
+        let csv = 'ID,start_X,start_Y,start_Z,start_node_type,start_node_id,start_label,end_X,end_Y,end_Z,end_node_type,end_node_id,end_label,Edge_Length,Length_Adjusted_m,LED_Ring_Diameter_m,purchased_length_m,pixel_count,strip_start_x,strip_start_y,strip_start_z,strip_end_x,strip_end_y,strip_end_z,Data_Flow_Start_Node_ID,Data_Flow_End_Node_ID\n';
 
         // Calculate center Y for flipping
         const centerY = (this.worldMinY + this.worldMaxY) / 2;
@@ -2823,7 +2847,9 @@ class NetworkVisualizer {
                 }
             }
 
-            csv += `${edgeId},${start.x},${startY},${start.z},${startType},${startNodeId},${startLabel},${end.x},${endY},${end.z},${endType},${endNodeId},${endLabel},${length.toFixed(2)},${adjustedLength.toFixed(2)},${this.nodeDiameterOffset.toFixed(2)},${stripStart.x.toFixed(6)},${stripSy.toFixed(6)},${stripStart.z.toFixed(6)},${stripEnd.x.toFixed(6)},${stripEy.toFixed(6)},${stripEnd.z.toFixed(6)},${flowStartId},${flowEndId}\n`;
+            const purchase = this.matchPurchaseBin(adjustedLength);
+
+            csv += `${edgeId},${start.x},${startY},${start.z},${startType},${startNodeId},${startLabel},${end.x},${endY},${end.z},${endType},${endNodeId},${endLabel},${length.toFixed(2)},${adjustedLength.toFixed(2)},${this.nodeDiameterOffset.toFixed(2)},${purchase.meter.toFixed(2)},${purchase.pixels},${stripStart.x.toFixed(6)},${stripSy.toFixed(6)},${stripStart.z.toFixed(6)},${stripEnd.x.toFixed(6)},${stripEy.toFixed(6)},${stripEnd.z.toFixed(6)},${flowStartId},${flowEndId}\n`;
         }
 
         this.downloadCSV('edge_data_export.csv', csv);

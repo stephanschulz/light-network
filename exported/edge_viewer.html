@@ -60,6 +60,7 @@ const statusEl = document.getElementById('status');
 function showStatus(msg) { statusEl.style.display = 'block'; statusEl.textContent = msg; }
 function hideStatus() { statusEl.style.display = 'none'; }
 
+
 async function loadCSV() {
   showStatus('Loading CSV…');
   const resp = await fetch('edge_data_export.csv');
@@ -69,11 +70,11 @@ async function loadCSV() {
   const edges = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    if (cols.length < 24) continue;
+    if (cols.length < 26) continue;
     const startNodeId = +cols[5];
     const endNodeId   = +cols[11];
-    const flowStartId = cols[22].trim();
-    const flowEndId   = cols[23].trim();
+    const flowStartId = cols[24].trim();
+    const flowEndId   = cols[25].trim();
     let flowReversed = false;
     if (flowStartId !== 'No Flow' && flowEndId !== 'No Flow') {
       flowReversed = (+flowStartId === endNodeId);
@@ -91,8 +92,10 @@ async function loadCSV() {
       length: +cols[13],
       adjustedLength: +cols[14],
       ringDiameter: +cols[15],
-      stripStart: new THREE.Vector3(+cols[16], +cols[18], +cols[17]),
-      stripEnd:   new THREE.Vector3(+cols[19], +cols[21], +cols[20]),
+      purchasedLength: +cols[16],
+      pixelCount: +cols[17],
+      stripStart: new THREE.Vector3(+cols[18], +cols[20], +cols[19]),
+      stripEnd:   new THREE.Vector3(+cols[21], +cols[23], +cols[22]),
       flowReversed,
       hasFlow: flowStartId !== 'No Flow',
       flowStartId: flowStartId,
@@ -444,6 +447,8 @@ async function main() {
     const flowEndLabel   = nodeIdToLabel.get(+e.flowEndId) || e.flowEndId;
     return `<span class="tt-head">Edge ${e.id}</span>\n` +
       `<span class="tt-dim">Strip length:</span> ${e.adjustedLength.toFixed(2)} m\n` +
+      `<span class="tt-dim">Purchased length:</span> ${e.purchasedLength.toFixed(2)} m\n` +
+      `<span class="tt-dim">Pixels:</span> ${e.pixelCount}\n` +
       `<span class="tt-dim">Start:</span> ${e.startLabel} (id ${e.startNodeId}) — ${e.startType}\n` +
       `<span class="tt-dim">End:</span> ${e.endLabel} (id ${e.endNodeId}) — ${e.endType}\n` +
       `<span class="tt-dim">Flow:</span> ${flowStartLabel} → ${flowEndLabel}`;

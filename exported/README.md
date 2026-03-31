@@ -22,14 +22,16 @@ The file `edge_data_export.csv` contains one row per edge (LED strip segment) in
 | 13 | `Edge_Length` | Full distance between the two geometric endpoints (meters). |
 | 14 | `Length_Adjusted_m` | LED strip length between the two LED rings: `max(0, Edge_Length − LED_Ring_Diameter_m)`. This is the actual lit strip length. |
 | 15 | `LED_Ring_Diameter_m` | Diameter of the LED ring trim applied at each node (meters). Half this value is trimmed from each end of the edge to produce the strip segment. |
-| 16 | `strip_start_x` | X coordinate where the LED strip begins (after trimming half the ring diameter inward from the start endpoint). |
-| 17 | `strip_start_y` | Y coordinate of strip start. |
-| 18 | `strip_start_z` | Z coordinate of strip start. |
-| 19 | `strip_end_x` | X coordinate where the LED strip ends (trimmed inward from the end endpoint). |
-| 20 | `strip_end_y` | Y coordinate of strip end. |
-| 21 | `strip_end_z` | Z coordinate of strip end. |
-| 22 | `Data_Flow_Start_Node_ID` | Node ID where data **originates** for this edge. This is the data source (the ArtNet controller side). May differ from `start_node_id`. Value is `No Flow` if no direction was assigned. |
-| 23 | `Data_Flow_End_Node_ID` | Node ID where data **arrives** for this edge. This is the data sink. For intercom edges, this is the intercom node. Value is `No Flow` if no direction was assigned. |
+| 16 | `purchased_length_m` | Nearest purchased LED tube length (meters) matched to this edge's adjusted length. |
+| 17 | `pixel_count` | Number of pixels in the matched purchased LED tube. |
+| 18 | `strip_start_x` | X coordinate where the LED strip begins (after trimming half the ring diameter inward from the start endpoint). |
+| 19 | `strip_start_y` | Y coordinate of strip start. |
+| 20 | `strip_start_z` | Z coordinate of strip start. |
+| 21 | `strip_end_x` | X coordinate where the LED strip ends (trimmed inward from the end endpoint). |
+| 22 | `strip_end_y` | Y coordinate of strip end. |
+| 23 | `strip_end_z` | Z coordinate of strip end. |
+| 24 | `Data_Flow_Start_Node_ID` | Node ID where data **originates** for this edge. This is the data source (the ArtNet controller side). May differ from `start_node_id`. Value is `No Flow` if no direction was assigned. |
+| 25 | `Data_Flow_End_Node_ID` | Node ID where data **arrives** for this edge. This is the data sink. For intercom edges, this is the intercom node. Value is `No Flow` if no direction was assigned. |
 
 ## Node types
 

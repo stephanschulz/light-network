@@ -60,12 +60,11 @@ async function loadCSV() {
   const edges = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    if (cols.length < 22) continue;
+    if (cols.length < 24) continue;
     const startNodeId = +cols[5];
-    const endNodeId = +cols[10];
-    const flowStartId = cols[20].trim();
-    const flowEndId = cols[21].trim();
-    // Determine arrow direction: does flow go start→end or end→start?
+    const endNodeId   = +cols[11];
+    const flowStartId = cols[22].trim();
+    const flowEndId   = cols[23].trim();
     let flowReversed = false;
     if (flowStartId !== 'No Flow' && flowEndId !== 'No Flow') {
       flowReversed = (+flowStartId === endNodeId);
@@ -74,12 +73,14 @@ async function loadCSV() {
       id: +cols[0],
       start: new THREE.Vector3(+cols[1], +cols[3], +cols[2]),
       startType: cols[4].trim(),
-      end:   new THREE.Vector3(+cols[6], +cols[8], +cols[7]),
-      endType: cols[9].trim(),
-      length: +cols[11],
-      ringDiameter: +cols[13],
-      stripStart: new THREE.Vector3(+cols[14], +cols[16], +cols[15]),
-      stripEnd:   new THREE.Vector3(+cols[17], +cols[19], +cols[18]),
+      startLabel: cols[6].trim(),
+      end:   new THREE.Vector3(+cols[7], +cols[9], +cols[8]),
+      endType: cols[10].trim(),
+      endLabel: cols[12].trim(),
+      length: +cols[13],
+      ringDiameter: +cols[15],
+      stripStart: new THREE.Vector3(+cols[16], +cols[18], +cols[17]),
+      stripEnd:   new THREE.Vector3(+cols[19], +cols[21], +cols[20]),
       flowReversed,
       hasFlow: flowStartId !== 'No Flow',
     });
@@ -91,13 +92,13 @@ function collectNodes(edges) {
   const nodeMap = new Map();
   for (const e of edges) {
     const pairs = [
-      { pt: e.start, type: e.startType },
-      { pt: e.end,   type: e.endType },
+      { pt: e.start, type: e.startType, label: e.startLabel },
+      { pt: e.end,   type: e.endType,   label: e.endLabel },
     ];
-    for (const { pt, type } of pairs) {
+    for (const { pt, type, label } of pairs) {
       const key = `${pt.x.toFixed(4)},${pt.y.toFixed(4)},${pt.z.toFixed(4)}`;
       if (!nodeMap.has(key)) {
-        nodeMap.set(key, { position: pt.clone(), type, diameter: e.ringDiameter });
+        nodeMap.set(key, { position: pt.clone(), type, label, diameter: e.ringDiameter });
       }
     }
   }
@@ -115,6 +116,7 @@ function buildScene(edges) {
     normalRings: new THREE.Group(),
     intercomRings: new THREE.Group(),
     nodes: new THREE.Group(),
+    labels: new THREE.Group(),
   };
   for (const [k, g] of Object.entries(groups)) { g.name = k; scene.add(g); }
 
@@ -235,6 +237,22 @@ function buildScene(edges) {
   }
   groups.nodes.add(instancedMesh);
 
+  // --- Node labels ---
+  const labelColorMap = { Intercom: '#ff7043', ArtNet: '#4fc3f7', Regular: '#cccccc' };
+  function rebuildLabels(scaleFactor) {
+    while (groups.labels.children.length) groups.labels.remove(groups.labels.children[0]);
+    if (scaleFactor <= 0) { groups.labels.visible = false; return; }
+    groups.labels.visible = true;
+    for (const n of nodeMap.values()) {
+      const color = labelColorMap[n.type] || '#cccccc';
+      const sprite = makeTextSprite(n.label, 48, color);
+      sprite.position.copy(n.position);
+      sprite.position.y += 0.6;
+      sprite.scale.multiplyScalar(scaleFactor);
+      groups.labels.add(sprite);
+    }
+  }
+
   // --- LED Rings ---
   const RING_TUBE = 0.03;
   const RING_SEGMENTS = 32;
@@ -288,14 +306,14 @@ function buildScene(edges) {
   document.getElementById('regularCount').textContent = regularCount;
   document.getElementById('nodeCount').textContent = nodeMap.size;
 
-  return { scene, groups, nodeMap, createRings, defaultDiameter, stripMaterials, defaultTubeWidth };
+  return { scene, groups, nodeMap, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth };
 }
 
 async function main() {
   const edges = await loadCSV();
   hideStatus();
 
-  const { scene, groups, nodeMap, createRings, defaultDiameter, stripMaterials, defaultTubeWidth } = buildScene(edges);
+  const { scene, groups, nodeMap, createRings, rebuildLabels, defaultDiameter, stripMaterials, defaultTubeWidth } = buildScene(edges);
 
   const box = new THREE.Box3();
   for (const e of edges) { box.expandByPoint(e.start); box.expandByPoint(e.end); }
@@ -325,6 +343,7 @@ async function main() {
     showNormalRings: true,
     showIntercomRings: true,
     showNodes: false,
+    labelSize: 0.5,
     tubeDiameter: 0.2,
     intercomDiameter: 2.5,
   };
@@ -339,6 +358,7 @@ async function main() {
   gui.add(params, 'showNormalRings').name('ArtNet/Regular Rings').onChange(v => { groups.normalRings.visible = v; });
   gui.add(params, 'showIntercomRings').name('Intercom Rings').onChange(v => { groups.intercomRings.visible = v; });
   gui.add(params, 'showNodes').name('Node Dots').onChange(v => { groups.nodes.visible = v; });
+  gui.add(params, 'labelSize', 0, 3.0, 0.1).name('Label Size').onChange(v => { rebuildLabels(v); });
   gui.add(params, 'intercomDiameter', 0.1, 3.0, 0.01).name('Intercom ⌀ (m)').onChange(v => {
     createRings(nodeMap, 'Intercom', v);
   });
@@ -347,6 +367,7 @@ async function main() {
 
   // Apply defaults
   groups.nodes.visible = params.showNodes;
+  rebuildLabels(params.labelSize);
   for (const mat of stripMaterials) mat.linewidth = params.tubeDiameter;
   createRings(nodeMap, 'Intercom', params.intercomDiameter);
 

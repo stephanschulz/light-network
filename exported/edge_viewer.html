@@ -342,6 +342,8 @@ async function main() {
   gui.add(params, 'intercomDiameter', 0.1, 3.0, 0.01).name('Intercom ⌀ (m)').onChange(v => {
     createRings(nodeMap, 'Intercom', v);
   });
+  const actions = { readme() { window.open('README.md', '_blank'); } };
+  gui.add(actions, 'readme').name('Open README');
 
   // Apply defaults
   groups.nodes.visible = params.showNodes;

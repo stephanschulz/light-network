@@ -1966,13 +1966,83 @@ class NetworkVisualizer {
         }
 
         if (closestNode) {
-            this.showTooltip(e.clientX, e.clientY, closestNode);
+            this.showNodeTooltip(e.clientX, e.clientY, closestNode);
         } else {
-            this.hideTooltip();
+            // Check for edge hover
+            const closestEdge = this.findClosestEdge(canvasX, canvasY, 8);
+            if (closestEdge) {
+                this.showEdgeTooltip(e.clientX, e.clientY, closestEdge);
+            } else {
+                this.hideTooltip();
+            }
         }
     }
 
-    showTooltip(x, y, nodeStr) {
+    findClosestEdge(canvasX, canvasY, threshold) {
+        let closest = null;
+        let minDist = threshold;
+        for (const edge of this.edges) {
+            const s = this.parseNode(edge.start);
+            const en = this.parseNode(edge.end);
+            const p1 = this.worldToCanvas(s.x, s.y);
+            const p2 = this.worldToCanvas(en.x, en.y);
+            const dist = this.pointToSegmentDist(canvasX, canvasY, p1.x, p1.y, p2.x, p2.y);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = edge;
+            }
+        }
+        return closest;
+    }
+
+    pointToSegmentDist(px, py, ax, ay, bx, by) {
+        const dx = bx - ax, dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-6) return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2);
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+        const projX = ax + t * dx, projY = ay + t * dy;
+        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+    }
+
+    showEdgeTooltip(x, y, edge) {
+        const edgeId = this.edgeIds.get(edge) || '?';
+        const startLabel = this.getNodeLabel(edge.start);
+        const endLabel = this.getNodeLabel(edge.end);
+        const startId = this.nodeIds.get(edge.start) || '?';
+        const endId = this.nodeIds.get(edge.end) || '?';
+        const { adjustedLength } = this.getStripSegmentBetweenRings(edge);
+
+        const isArtnet = (n) => this.artnetOptimization && this.artnetOptimization.artnetNodes.includes(n);
+        const nodeType = (n) => {
+            if (this.intercomNodes.has(n)) return 'Intercom';
+            if (isArtnet(n)) return 'ArtNet';
+            return 'Regular';
+        };
+
+        let flowInfo = 'No Flow';
+        if (this.artnetOptimization) {
+            const dir = this.artnetOptimization.edgeDirections.get(edge);
+            if (dir && dir.start) {
+                const flowStartLabel = this.getNodeLabel(dir.start);
+                const flowEndLabel = this.getNodeLabel(dir.end);
+                flowInfo = `${flowStartLabel} → ${flowEndLabel}`;
+            }
+        }
+
+        let text = `Edge: ${edgeId}\n`;
+        text += `Strip length: ${adjustedLength.toFixed(2)} m\n`;
+        text += `Start: ${startLabel} (id ${startId}) — ${nodeType(edge.start)}\n`;
+        text += `End: ${endLabel} (id ${endId}) — ${nodeType(edge.end)}\n`;
+        text += `Flow: ${flowInfo}`;
+
+        const tooltip = document.getElementById('tooltip');
+        tooltip.textContent = text;
+        tooltip.style.left = `${x + 10}px`;
+        tooltip.style.top = `${y + 10}px`;
+        tooltip.style.display = 'block';
+    }
+
+    showNodeTooltip(x, y, nodeStr) {
         const node = this.parseNode(nodeStr);
         const label = this.getNodeLabel(nodeStr);
         const arrowCount = this.countArrowsFromNode(nodeStr);
@@ -1991,12 +2061,10 @@ class NetworkVisualizer {
         const nodeType = isIntercom ? 'Intercom Node' : (isArtnet ? 'ArtNet Node' : 'Regular Node');
 
         let text = `Node: ${label}\n`;
-        text += `Position: (${node.x.toFixed(2)}, ${node.y.toFixed(2)})\n`;
-        text += `Total edges: ${totalEdges}\n`;
-        text += `Arrows drawn: ${arrowCount}\n`;
-        text += `Edge IDs: ${edgeIdList.slice(0, 5).join(', ')}`;
-        if (edgeIdList.length > 5) text += ` (+${edgeIdList.length - 5} more)`;
-        text += `\nType: ${nodeType}`;
+        text += `Type: ${nodeType}\n`;
+        text += `Position: (${node.x.toFixed(2)}, ${node.y.toFixed(2)}, ${node.z.toFixed(2)})\n`;
+        text += `Edge IDs: ${edgeIdList.join(', ')}\n`;
+        text += `Data flow outputs: ${arrowCount}`;
 
         const tooltip = document.getElementById('tooltip');
         tooltip.textContent = text;

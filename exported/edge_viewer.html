@@ -89,6 +89,7 @@ async function loadCSV() {
       endNodeId: endNodeId,
       endLabel: cols[12].trim(),
       length: +cols[13],
+      adjustedLength: +cols[14],
       ringDiameter: +cols[15],
       stripStart: new THREE.Vector3(+cols[16], +cols[18], +cols[17]),
       stripEnd:   new THREE.Vector3(+cols[19], +cols[21], +cols[20]),
@@ -442,7 +443,7 @@ async function main() {
     const flowStartLabel = nodeIdToLabel.get(+e.flowStartId) || e.flowStartId;
     const flowEndLabel   = nodeIdToLabel.get(+e.flowEndId) || e.flowEndId;
     return `<span class="tt-head">Edge ${e.id}</span>\n` +
-      `<span class="tt-dim">Length:</span> ${e.length.toFixed(2)} m\n` +
+      `<span class="tt-dim">Strip length:</span> ${e.adjustedLength.toFixed(2)} m\n` +
       `<span class="tt-dim">Start:</span> ${e.startLabel} (id ${e.startNodeId}) — ${e.startType}\n` +
       `<span class="tt-dim">End:</span> ${e.endLabel} (id ${e.endNodeId}) — ${e.endType}\n` +
       `<span class="tt-dim">Flow:</span> ${flowStartLabel} → ${flowEndLabel}`;
